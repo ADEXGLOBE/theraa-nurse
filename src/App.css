@@ -161,3 +161,35 @@
   font-size: 18px;
   font-weight: 600;
 }
+/* --- Phase 1: Documents UI helpers --- */
+.zone-page { display: flex; flex-direction: column; }
+.zone-header h2 { font-size: 20px; }
+
+.pill {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pill-active { border-color: #111827; background: #f3f4f6; }
+
+.primary {
+  background: #111827;
+  color: #ffffff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.upload-box input[type="file"] { display: block; width: 100%; }
+
+.doc-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #ffffff;
+}

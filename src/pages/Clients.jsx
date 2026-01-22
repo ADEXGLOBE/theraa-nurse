@@ -1,0 +1,273 @@
+// src/pages/Clients.jsx
+import { useEffect, useMemo, useState } from "react";
+import mockClients from "../data/mockClients";
+import {
+  addClient,
+  deleteClient,
+  ensureSeedClients,
+  loadClients,
+  updateClient,
+} from "../data/clientsStore";
+
+const ZONES = ["THERAPY", "MEDS", "STAFF", "PARAMEDIC", "VPN"];
+
+function parseCommaList(s) {
+  return (s || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+export default function Clients() {
+  const [clients, setClients] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+
+  // form fields
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [primaryZone, setPrimaryZone] = useState("THERAPY");
+  const [diagnoses, setDiagnoses] = useState("");
+  const [keyRisks, setKeyRisks] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const selectedClient = useMemo(
+    () => clients.find((c) => c.id === selectedId) || null,
+    [clients, selectedId]
+  );
+
+  function refresh() {
+    const seeded = ensureSeedClients(mockClients);
+    setClients(seeded);
+
+    if (!selectedId && seeded.length > 0) {
+      setSelectedId(seeded[0].id);
+    }
+  }
+
+  useEffect(() => {
+    // load/seed once
+    const seeded = ensureSeedClients(mockClients);
+    setClients(seeded);
+    if (seeded.length > 0) setSelectedId(seeded[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // when selected client changes, populate form for editing
+  useEffect(() => {
+    if (!selectedClient) return;
+
+    setName(selectedClient.name || "");
+    setAge(String(selectedClient.age ?? ""));
+    setPrimaryZone(selectedClient.primaryZone || "THERAPY");
+    setDiagnoses((selectedClient.diagnoses || []).join(", "));
+    setKeyRisks((selectedClient.keyRisks || []).join(", "));
+    setNotes(selectedClient.notes || "");
+  }, [selectedClient]);
+
+  function clearForm() {
+    setSelectedId("");
+    setName("");
+    setAge("");
+    setPrimaryZone("THERAPY");
+    setDiagnoses("");
+    setKeyRisks("");
+    setNotes("");
+  }
+
+  function handleCreateNew() {
+    clearForm();
+  }
+
+  function handleSave() {
+    if (!name.trim()) {
+      alert("Client name is required.");
+      return;
+    }
+
+    const payload = {
+      name: name.trim(),
+      age: Number(age || 0),
+      primaryZone,
+      diagnoses: parseCommaList(diagnoses),
+      keyRisks: parseCommaList(keyRisks),
+      notes: notes || "",
+    };
+
+    if (selectedId) {
+      updateClient(selectedId, payload);
+    } else {
+      addClient(payload);
+    }
+
+    const updated = loadClients();
+    setClients(updated);
+
+    // auto-select newly created client (first item)
+    if (!selectedId && updated.length > 0) {
+      setSelectedId(updated[0].id);
+    }
+
+    alert("Client saved.");
+  }
+
+  function handleDelete() {
+    if (!selectedId) return;
+    const ok = confirm("Delete this client? (Documents and care plans will still exist, but won’t be linked.)");
+    if (!ok) return;
+
+    deleteClient(selectedId);
+
+    const updated = loadClients();
+    setClients(updated);
+
+    if (updated.length > 0) setSelectedId(updated[0].id);
+    else clearForm();
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Clients</h1>
+          <p className="page-subtitle">
+            Add and manage clients for Theraa Nurse. This replaces hardcoded mockClients.
+          </p>
+        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", textAlign: "right" }}>
+          Stored locally (MVP) · localStorage
+        </div>
+      </div>
+
+      <div className="two-column">
+        {/* LEFT: list */}
+        <div className="card">
+          <div className="card-title">Client list</div>
+          <div className="card-subtitle">Select a client to edit, or create a new one.</div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <button className="btn-primary" onClick={handleCreateNew}>
+              ➕ New client
+            </button>
+            <button className="btn-primary" style={{ background: "#4b5563" }} onClick={refresh}>
+              ↻ Refresh
+            </button>
+          </div>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            {clients.length === 0 ? (
+              <div style={{ color: "#6b7280", fontSize: 13 }}>No clients yet.</div>
+            ) : (
+              clients.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedId(c.id)}
+                  style={{
+                    textAlign: "left",
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: c.id === selectedId ? "#eff6ff" : "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>
+                    {c.name} <span style={{ fontWeight: 400, color: "#6b7280" }}>({c.age})</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    Zone: {c.primaryZone || "—"} · Risks: {(c.keyRisks || []).slice(0, 2).join(", ") || "—"}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: edit/create */}
+        <div className="stack">
+          <div className="card">
+            <div className="card-title">{selectedId ? "Edit client" : "Create new client"}</div>
+            <div className="card-subtitle">
+              Use commas for diagnoses/risks. Keep it simple — we’ll enrich this via documents.
+            </div>
+
+            <label className="section-title-sm">
+              Full name
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+
+            <label className="section-title-sm">
+              Age
+              <input className="input" value={age} onChange={(e) => setAge(e.target.value)} />
+            </label>
+
+            <label className="section-title-sm">
+              Primary zone
+              <select className="input" value={primaryZone} onChange={(e) => setPrimaryZone(e.target.value)}>
+                {ZONES.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="section-title-sm">
+              Diagnoses (comma-separated)
+              <textarea
+                className="textarea"
+                rows={3}
+                value={diagnoses}
+                onChange={(e) => setDiagnoses(e.target.value)}
+                placeholder="e.g., Osteoporosis, Chronic kidney disease"
+              />
+            </label>
+
+            <label className="section-title-sm">
+              Key risks (comma-separated)
+              <textarea
+                className="textarea"
+                rows={3}
+                value={keyRisks}
+                onChange={(e) => setKeyRisks(e.target.value)}
+                placeholder="e.g., Falls risk, Memory changes"
+              />
+            </label>
+
+            <label className="section-title-sm">
+              Notes
+              <textarea
+                className="textarea"
+                rows={4}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Anything important: routine, preferences, supports..."
+              />
+            </label>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              <button className="btn-primary" onClick={handleSave}>
+                💾 Save client
+              </button>
+
+              {selectedId ? (
+                <button className="btn-primary" style={{ background: "#b91c1c" }} onClick={handleDelete}>
+                  🗑 Delete client
+                </button>
+              ) : null}
+
+              <button className="btn-primary" style={{ background: "#4b5563" }} onClick={clearForm}>
+                Clear
+              </button>
+            </div>
+
+            {selectedClient?.updatedAt ? (
+              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>
+                Updated: {new Date(selectedClient.updatedAt).toLocaleString()}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
