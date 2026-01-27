@@ -1,25 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadClients } from "../data/clientsStore";
-import {
-  loadCarePlanVersions,
-  saveCarePlanVersion,
-} from "../data/carePlanStore";
+import { loadCarePlanVersions, saveCarePlanVersion } from "../data/carePlanStore";
 import { generateCarePlanPdf } from "../features/careplans/carePlanPdf";
 
 export default function CarePlanZone() {
   const clients = loadClients();
-  const [selectedClientId, setSelectedClientId] = useState(
-    clients[0]?.id || ""
-  );
 
+  const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || "");
   const [versions, setVersions] = useState([]);
   const [activePlan, setActivePlan] = useState(null);
 
   useEffect(() => {
     if (!selectedClientId) return;
-    const v = loadCarePlanVersions(selectedClientId);
+
+    const v = loadCarePlanVersions(selectedClientId) || [];
     setVersions(v);
-    setActivePlan(v[0]?.plan || null);
+
+    // If there's an existing plan version, load it; otherwise load an empty template
+    const initialPlan =
+      v[0]?.plan || {
+        goalsShort: "",
+        goalsLong: "",
+        risks: "",
+        communication: "",
+        supports: "",
+        legalEthical: "",
+      };
+
+    setActivePlan(initialPlan);
   }, [selectedClientId]);
 
   const client = useMemo(
@@ -36,20 +44,39 @@ export default function CarePlanZone() {
     );
   }
 
+  const latestVersion = versions?.[0] || null;
+
   const updateField = (field, value) => {
-    setActivePlan((p) => ({ ...p, [field]: value }));
+    setActivePlan((p) => ({ ...(p || {}), [field]: value }));
   };
 
   function saveReviewed() {
+    if (!activePlan) return;
+
     saveCarePlanVersion({
       clientId: client.id,
       status: "reviewed",
       plan: activePlan,
-      evidenceCount: versions[0]?.evidenceCount || 0,
+      evidenceCount: latestVersion?.evidenceCount || 0,
     });
+
     alert("Care plan saved as reviewed.");
-    const v = loadCarePlanVersions(client.id);
+
+    const v = loadCarePlanVersions(client.id) || [];
     setVersions(v);
+    setActivePlan(v[0]?.plan || activePlan);
+  }
+
+  function downloadPdf() {
+    if (!latestVersion) {
+      alert("No saved version yet. Click 'Save as Reviewed' first, then download.");
+      return;
+    }
+
+    generateCarePlanPdf({
+      client,
+      planVersion: latestVersion,
+    });
   }
 
   return (
@@ -76,10 +103,16 @@ export default function CarePlanZone() {
           </select>
         </label>
 
-        {versions.length > 0 && (
+        {latestVersion && (
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-            Latest version: {versions[0].status} ·{" "}
-            {new Date(versions[0].createdAt).toLocaleString()}
+            Latest version: {latestVersion.status} ·{" "}
+            {new Date(latestVersion.createdAt).toLocaleString()}
+          </div>
+        )}
+
+        {!latestVersion && (
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+            No versions yet — fill the plan and click <b>Save as Reviewed</b>.
           </div>
         )}
       </div>
@@ -92,9 +125,7 @@ export default function CarePlanZone() {
               <textarea
                 rows={4}
                 value={activePlan.goalsShort || ""}
-                onChange={(e) =>
-                  updateField("goalsShort", e.target.value)
-                }
+                onChange={(e) => updateField("goalsShort", e.target.value)}
               />
             </div>
 
@@ -103,9 +134,7 @@ export default function CarePlanZone() {
               <textarea
                 rows={4}
                 value={activePlan.goalsLong || ""}
-                onChange={(e) =>
-                  updateField("goalsLong", e.target.value)
-                }
+                onChange={(e) => updateField("goalsLong", e.target.value)}
               />
             </div>
 
@@ -114,9 +143,7 @@ export default function CarePlanZone() {
               <textarea
                 rows={3}
                 value={activePlan.risks || ""}
-                onChange={(e) =>
-                  updateField("risks", e.target.value)
-                }
+                onChange={(e) => updateField("risks", e.target.value)}
               />
             </div>
           </div>
@@ -127,9 +154,7 @@ export default function CarePlanZone() {
               <textarea
                 rows={3}
                 value={activePlan.communication || ""}
-                onChange={(e) =>
-                  updateField("communication", e.target.value)
-                }
+                onChange={(e) => updateField("communication", e.target.value)}
               />
             </div>
 
@@ -138,9 +163,7 @@ export default function CarePlanZone() {
               <textarea
                 rows={3}
                 value={activePlan.supports || ""}
-                onChange={(e) =>
-                  updateField("supports", e.target.value)
-                }
+                onChange={(e) => updateField("supports", e.target.value)}
               />
             </div>
 
@@ -149,28 +172,24 @@ export default function CarePlanZone() {
               <textarea
                 rows={3}
                 value={activePlan.legalEthical || ""}
-                onChange={(e) =>
-                  updateField("legalEthical", e.target.value)
-                }
+                onChange={(e) => updateField("legalEthical", e.target.value)}
               />
 
-              <button
-                className="primary"
-                style={{ marginTop: 10 }}
-                onClick={saveReviewed}
-              >
+              <button className="primary" style={{ marginTop: 10 }} onClick={saveReviewed}>
                 💾 Save as Reviewed
               </button>
 
               <button
                 className="primary"
-                style={{ marginTop: 8, background: "#0f766e" }}
-                onClick={() =>
-                  generateCarePlanPdf({
-                    client,
-                    planVersion: versions[0],
-                  })
-                }
+                style={{
+                  marginTop: 8,
+                  background: "#0f766e",
+                  opacity: latestVersion ? 1 : 0.6,
+                  cursor: latestVersion ? "pointer" : "not-allowed",
+                }}
+                disabled={!latestVersion}
+                onClick={downloadPdf}
+                title={!latestVersion ? "Save a version first" : "Download PDF"}
               >
                 📄 Download Care Plan (PDF)
               </button>
