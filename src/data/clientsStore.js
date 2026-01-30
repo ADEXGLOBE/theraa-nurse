@@ -81,9 +81,62 @@ export function updateClient(clientId, patch) {
   return updated.find((c) => c.id === clientId) || null;
 }
 
+/**
+ * Basic delete (client list only)
+ */
 export function deleteClient(clientId) {
   const clients = loadClients();
   saveClients(clients.filter((c) => c.id !== clientId));
+}
+
+/**
+ * ✅ FULL DELETE (cascade):
+ * - removes client from localStorage
+ * - deletes ALL documents for that client (IndexedDB)
+ * - deletes ALL care plan versions for that client (localStorage)
+ * - deletes sessions if your sessionStore supports it (optional)
+ */
+export async function deleteClientFull(clientId) {
+  if (!clientId) return;
+
+  // 1) Remove client record
+  const clients = loadClients();
+  saveClients(clients.filter((c) => c.id !== clientId));
+
+  // 2) Delete documents (IndexedDB)
+  try {
+    const docService = await import("../features/documents/documentService");
+    if (docService?.deleteAllDocumentsForClient) {
+      await docService.deleteAllDocumentsForClient(clientId);
+    }
+  } catch (err) {
+    console.warn("deleteClientFull: documents cleanup skipped", err);
+  }
+
+  // 3) Delete care plans (localStorage)
+  try {
+    const careStore = await import("./carePlanStore");
+    if (careStore?.deleteCarePlansForClient) {
+      careStore.deleteCarePlansForClient(clientId);
+    }
+  } catch (err) {
+    console.warn("deleteClientFull: care plan cleanup skipped", err);
+  }
+
+  // 4) Delete sessions (optional)
+  try {
+    const sessionStore = await import("./sessionStore");
+    if (sessionStore?.deleteSessionsForClient) {
+      sessionStore.deleteSessionsForClient(clientId);
+    }
+  } catch (err) {
+    // ok if you don't have this function
+  }
+
+  // Notify app
+  try {
+    window.dispatchEvent(new CustomEvent("tn:clients-changed"));
+  } catch {}
 }
 
 function makeClientId(name) {

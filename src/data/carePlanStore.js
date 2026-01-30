@@ -1,5 +1,4 @@
 // src/data/carePlanStore.js
-
 const STORAGE_KEY = "theraa_nurse_careplans_v1";
 
 function loadAll() {
@@ -11,7 +10,7 @@ function loadAll() {
 }
 
 function saveAll(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data || {}));
 }
 
 function uid() {
@@ -54,6 +53,16 @@ export function saveCarePlanVersion({
   saveAll(all);
 
   return version;
+}
+
+/**
+ * ✅ Delete ALL versions for a client
+ */
+export function deleteCarePlansForClient(clientId) {
+  if (!clientId) return;
+  const all = loadAll();
+  delete all[clientId];
+  saveAll(all);
 }
 
 /* ------------------------------------------------------------------

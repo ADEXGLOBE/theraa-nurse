@@ -1,141 +1,185 @@
 // src/features/careplans/carePlanGenerator.js
 
-// Very safe MVP: rule-based extraction from text
-// Later we can upgrade to smarter NLP + OCR outputs.
 function normalize(text) {
   return (text || "").replace(/\s+/g, " ").trim();
 }
 
-function findAny(text, keywords = []) {
+function hasAny(text, keywords = []) {
   const t = (text || "").toLowerCase();
   return keywords.some((k) => t.includes(k));
 }
 
-function extractListByKeywords(text, keywords) {
-  const t = (text || "").toLowerCase();
+function findLines(text, patterns = [], limit = 10) {
+  const lines = (text || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
   const hits = [];
-  for (const k of keywords) {
-    if (t.includes(k.toLowerCase())) hits.push(k);
+  for (const line of lines) {
+    if (patterns.some((p) => p.test(line))) hits.push(line);
+    if (hits.length >= limit) break;
   }
-  return [...new Set(hits)];
+  return hits;
+}
+
+function bullets(lines, fallback) {
+  if (!lines || lines.length === 0) return fallback;
+  return lines.map((l) => `• ${l}`).join("\n");
 }
 
 function makeRiskLevel(risks) {
-  // Simple heuristic
-  const high = ["falls", "shortness of breath", "chest pain", "suicid", "wandering"];
+  const high = ["falls", "shortness of breath", "chest pain", "suicid", "wandering", "self-harm"];
   if (risks.some((r) => high.some((h) => r.toLowerCase().includes(h)))) return "High";
   if (risks.length >= 2) return "Medium";
   return risks.length ? "Low" : "Unknown";
 }
 
+/**
+ * Build findings from documents (textContent + extractedText)
+ */
 export function buildFindingsFromDocs(docs = []) {
   const combined = normalize(
-    docs
+    (docs || [])
       .map((d) => [d.textContent, d.extractedText].filter(Boolean).join("\n"))
       .filter(Boolean)
       .join("\n\n")
   );
 
   const risks = [];
-  if (findAny(combined, ["fall", "falls", "slipped", "unsteady"])) risks.push("Falls risk");
-  if (findAny(combined, ["shortness of breath", "sob", "breathless"])) risks.push("Breathing difficulty");
-  if (findAny(combined, ["swelling", "oedema", "fluid retention"])) risks.push("Fluid retention / swelling");
-  if (findAny(combined, ["refused medication", "missed dose", "did not take medication"])) risks.push("Medication non-adherence");
-  if (findAny(combined, ["agitated", "aggression", "escalation"])) risks.push("Behaviour escalation");
-  if (findAny(combined, ["low mood", "depressed", "hopeless", "anxiety"])) risks.push("Mental health risk");
-  if (findAny(combined, ["wandering", "abscond"])) risks.push("Wandering / absconding risk");
-  if (findAny(combined, ["choking", "aspiration"])) risks.push("Swallowing / choking risk");
+  if (hasAny(combined, ["fall", "falls", "slipped", "unsteady"])) risks.push("Falls risk");
+  if (hasAny(combined, ["shortness of breath", "sob", "breathless"])) risks.push("Breathing difficulty");
+  if (hasAny(combined, ["swelling", "oedema", "fluid retention"])) risks.push("Fluid retention / swelling");
+  if (hasAny(combined, ["refused medication", "missed dose", "did not take medication"])) risks.push("Medication non-adherence");
+  if (hasAny(combined, ["agitated", "aggression", "escalation"])) risks.push("Behaviour escalation");
+  if (hasAny(combined, ["low mood", "depressed", "hopeless", "anxiety"])) risks.push("Mental health distress risk");
+  if (hasAny(combined, ["wandering", "abscond"])) risks.push("Wandering / absconding risk");
+  if (hasAny(combined, ["choking", "aspiration", "swallow"])) risks.push("Swallowing / choking risk");
 
   const goals = [];
-  if (findAny(combined, ["goal:", "goals:", "aim:", "objective:"])) goals.push("Goals mentioned in notes (review & confirm)");
-  if (findAny(combined, ["walk", "mobility", "exercise"])) goals.push("Maintain/improve mobility");
-  if (findAny(combined, ["hydration", "fluids", "drink"])) goals.push("Hydration support");
-  if (findAny(combined, ["independent", "independence"])) goals.push("Increase independence / active support");
-  if (findAny(combined, ["routine", "structure", "predictable"])) goals.push("Maintain predictable routines");
+  if (hasAny(combined, ["goal:", "goals:", "aim:", "objective:"])) goals.push("Goals mentioned in notes (review & confirm)");
+  if (hasAny(combined, ["walk", "mobility", "exercise"])) goals.push("Maintain/improve mobility");
+  if (hasAny(combined, ["hydration", "fluids", "drink"])) goals.push("Hydration support");
+  if (hasAny(combined, ["independent", "independence"])) goals.push("Increase independence / active support");
+  if (hasAny(combined, ["routine", "structure", "predictable"])) goals.push("Maintain predictable routines");
+  if (hasAny(combined, ["community", "social", "participation"])) goals.push("Increase community participation / social inclusion");
 
   const preferences = [];
-  if (findAny(combined, ["prefers", "likes", "responds well", "calm music", "music therapy"])) {
+  if (hasAny(combined, ["prefers", "likes", "responds well", "calm music", "music"])) {
     preferences.push("Responds well to calming activities (e.g., music / quiet walks)");
   }
-  if (findAny(combined, ["shorter activities", "gets tired"])) {
+  if (hasAny(combined, ["shorter activities", "gets tired", "fatigue"])) {
     preferences.push("Prefers short activities with rest breaks");
   }
-  if (findAny(combined, ["predictable", "routine"])) {
+  if (hasAny(combined, ["predictable", "routine"])) {
     preferences.push("Prefers predictable routine and clear communication");
   }
 
   const medsFlags = [];
-  if (findAny(combined, ["medication", "mar", "dose", "tablet"])) medsFlags.push("Medication support referenced");
-  if (findAny(combined, ["refused", "missed"])) medsFlags.push("Potential missed/refused medication mentioned");
+  if (hasAny(combined, ["medication", "mar", "dose", "tablet"])) medsFlags.push("Medication support referenced");
+  if (hasAny(combined, ["refused", "missed"])) medsFlags.push("Potential missed/refused medication mentioned");
 
-  const triggers = extractListByKeywords(combined, [
-    "noise",
-    "change in routine",
-    "new environment",
-    "overstimulation",
-    "sensory",
-  ]).map((t) => `Trigger mentioned: ${t}`);
+  // Evidence-based line pulls
+  const goalsLines = findLines(combined, [/goal/i, /aim/i, /objective/i, /would like/i, /wants to/i], 8);
+  const risksLines = findLines(combined, [/fall/i, /risk/i, /incident/i, /aggress/i, /self harm|suicid/i, /wander|abscond/i], 10);
+  const commLines = findLines(combined, [/communicat/i, /prefers/i, /simple language/i, /visual/i, /processing time/i], 8);
+  const routineLines = findLines(combined, [/routine/i, /morning/i, /evening/i, /sleep/i], 8);
 
-  const findings = {
+  return {
     combinedText: combined,
     goals: [...new Set(goals)],
     risks: [...new Set(risks)],
     preferences: [...new Set(preferences)],
     medsFlags: [...new Set(medsFlags)],
-    triggers: [...new Set(triggers)],
     riskLevel: makeRiskLevel([...new Set(risks)]),
-  };
 
-  return findings;
+    // Evidence lines
+    goalsLines,
+    risksLines,
+    commLines,
+    routineLines,
+  };
 }
 
-export function generateCarePlanDraft({ client, findings, recentSessions = [] }) {
+/**
+ * Generate a safe NDIS-aligned draft
+ * Returns:
+ * - planUi: fits your CarePlanZone fields
+ * - structured: 12-section plan (for PDF and future UI)
+ */
+export function generateCarePlanDraft({ client, findings, recentSessions = [], evidenceCount = 0 }) {
   const clientName = client?.name || "Client";
-  const diagnoses = client?.diagnoses?.length ? client.diagnoses.join(", ") : "Not provided";
-  const keyRisks = client?.keyRisks?.length ? client.keyRisks.join(", ") : "Not provided";
 
-  const plan = {
-    title: `Care Plan Draft — ${clientName}`,
-    generatedAt: new Date().toISOString(),
-    clientId: client?.id || "",
-    sections: {
-      clientSummary: {
-        clientName,
-        age: client?.age ?? "",
-        diagnoses,
-        baselineRisks: keyRisks,
-        riskLevel: findings?.riskLevel || "Unknown",
-      },
-      goals: findings?.goals?.length ? findings.goals : ["Confirm client goals and preferred outcomes"],
-      supports: [
+  const uiPlan = {
+    goalsShort: findings?.goalsLines?.length
+      ? bullets(findings.goalsLines, "• Confirm participant short-term goals")
+      : bullets(findings?.goals || [], "• Confirm participant short-term goals"),
+    goalsLong: bullets(
+      [
+        "Maintain independence and participation aligned to NDIS goals.",
+        "Support stable routines and gradual skill development (active support).",
+      ],
+      "• Confirm participant long-term goals"
+    ),
+    risks: findings?.risksLines?.length
+      ? bullets(findings.risksLines, "• Identify risks and controls (falls, behaviour, health changes)")
+      : bullets(findings?.risks || [], "• Identify risks and controls (falls, behaviour, health changes)"),
+    communication: findings?.commLines?.length
+      ? bullets(findings.commLines, "• Use clear respectful communication; confirm preferences")
+      : "• Use clear, respectful communication\n• Allow processing time\n• Confirm understanding",
+    supports: bullets(
+      [
         "Use person-centred, strengths-based practice and active support (do-with, not do-for).",
-        "Maintain privacy/confidentiality; document support delivered and outcomes.",
-        "Support routines and preferences; use clear communication.",
+        "Support ADLs and routines as required (prompting/partial/full assistance as appropriate).",
+        "Document supports delivered and outcomes each shift/session.",
       ],
-      routinesAndPreferences: findings?.preferences?.length ? findings.preferences : ["Confirm preferred routines and activities"],
-      risksAndControls: [
-        ...(findings?.risks?.length ? findings.risks : ["Identify and document risks (falls, medication, behaviours, etc.)"]),
-        "Complete and follow risk controls; escalate changes of condition per policy.",
-      ],
-      medicationSupport: findings?.medsFlags?.length
-        ? findings.medsFlags.concat(["Document medication prompting/support, refusals, and escalation actions"])
-        : ["If medication support is required: follow MAR/med chart, document prompting/refusal, escalate issues."],
-      escalationPathway: [
-        "Escalate immediately for: falls with injury, shortness of breath, chest pain, severe behaviour escalation, suspected abuse/neglect.",
-        "Report to supervisor/clinical lead according to organisation policy; document actions taken.",
-      ],
-      documentationRequirements: [
-        "Progress notes every shift (who/what/when/how/outcome).",
-        "Incident report for falls/near misses/medication refusal/adverse reactions.",
-        "Update care plan when needs/risks change; record approvals and version changes.",
-      ],
-      recentSessionSignals: recentSessions?.length
-        ? [
-            `Recent sessions recorded: ${recentSessions.length}. Review for trends in mood/risks/adherence.`,
-          ]
-        : ["No app sessions found yet; rely on documents and begin logging sessions consistently."],
+      "• Map supports to participant goals"
+    ),
+    legalEthical: [
+      "• Maintain privacy/confidentiality and consent for sharing information.",
+      "• Duty of care + dignity of risk: support participation with managed risks.",
+      "• Mandatory reporting if abuse/neglect/exploitation indicators exist (per policy).",
+      "• Restrictive practices only if authorised and documented (if applicable).",
+    ].join("\n"),
+
+    meta: {
+      generatedAt: new Date().toISOString(),
+      evidenceCount,
+      clientId: client?.id || "",
     },
   };
 
-  return plan;
+  const structured = {
+    participantDetailsPlanInfo: [
+      `Name: ${clientName}`,
+      `Age/DOB: ${client?.age ?? ""}`,
+      "NDIS number: (add)",
+      "Address/contact: (add)",
+      "Emergency contact: (add)",
+      "Plan start/review dates: (add)",
+      "Support coordinator/provider: (add)",
+    ].join("\n"),
+    participantGoals: bullets(findings?.goalsLines || findings?.goals || [], "• Add goals from NDIS plan (participant’s words)"),
+    strengthsInterests: bullets(findings?.preferences || [], "• Add strengths, interests, motivators (strength-based)"),
+    functionalSupportNeeds: "• Personal care (shower/dress/groom): (add)\n• Mobility/transfers: (add)\n• Communication: (add)\n• Community access: (add)\n• Behaviour/cognitive: (add)",
+    healthClinicalConsiderations:
+      "• Include ONLY relevant info sourced from professionals.\n• Medication overview: name + purpose only (no prescribing).\n• Allied health involvement: OT/Psych/Physio/GP (add).",
+    riskAssessmentManagement: bullets(findings?.risksLines || findings?.risks || [], "• Add risks + triggers + prevention + response steps"),
+    behaviourSupportIfApplicable:
+      "• If behaviours of concern exist: PBS strategies, what works/doesn’t, trauma-informed supports.\n• Restrictive practices only if authorised and documented.",
+    dailyRoutinesSchedule: bullets(findings?.routineLines || [], "• Add morning/day/evening routines and variations"),
+    communicationDecisionMakingPreferences: bullets(findings?.commLines || [], "• Add decision-making preferences + who to involve"),
+    safeguardsPrivacyConsent:
+      "• Consent for information sharing: (add)\n• Privacy preferences: (add)\n• Nominee/guardian: (add)\n• Advocacy supports: (add)",
+    monitoringReviewOutcomes:
+      `• Track progress via session notes, observations, and reports.\n• Review frequency: (e.g., fortnightly/monthly).\n• Evidence sources: ${evidenceCount} documents + ${recentSessions.length} sessions.`,
+    signaturesAcknowledgements:
+      "Participant/rep signature: __________________  Date: ________\nProvider signature: _________________________  Date: ________",
+  };
+
+  return {
+    planUi: uiPlan,
+    structured,
+    title: `Care Plan Draft — ${clientName}`,
+  };
 }

@@ -1,10 +1,5 @@
 // src/features/documents/documentService.js
-import {
-  idbDelete,
-  idbGetAll,
-  idbGetAllByIndex,
-  idbPut,
-} from "./idb";
+import { idbDelete, idbGetAll, idbGetAllByIndex, idbPut } from "./idb";
 import { classifyDocument } from "./documentClassifier";
 import { extractSections } from "./documentSectionExtractor";
 
@@ -18,9 +13,7 @@ function uid() {
 
 function notifyDocumentsChanged(clientId) {
   try {
-    window.dispatchEvent(
-      new CustomEvent("tn:documents-changed", { detail: { clientId } })
-    );
+    window.dispatchEvent(new CustomEvent("tn:documents-changed", { detail: { clientId } }));
   } catch {}
 }
 
@@ -107,48 +100,48 @@ export async function deleteDocument(id) {
   if (found?.clientId) notifyDocumentsChanged(found.clientId);
 }
 
+/**
+ * ✅ Delete ALL documents for a client (cascade helper for deleteClientFull)
+ */
+export async function deleteAllDocumentsForClient(clientId) {
+  if (!clientId) return false;
+  const docs = await listDocumentsForClient(clientId);
+  for (const d of docs) {
+    await idbDelete("documents", d.id);
+  }
+  notifyDocumentsChanged(clientId);
+  return true;
+}
+
 /* -------------------------------------------
    Queries
 -------------------------------------------- */
 
 export async function listAllDocuments() {
   const docs = await idbGetAll("documents");
-  return (docs || []).sort((a, b) =>
-    a.createdAt < b.createdAt ? 1 : -1
-  );
+  return (docs || []).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 export async function listDocumentsForClient(clientId) {
-  const docs = await idbGetAllByIndex(
-    "documents",
-    "by_clientId",
-    clientId
-  );
-  return (docs || []).sort((a, b) =>
-    a.createdAt < b.createdAt ? 1 : -1
-  );
+  const docs = await idbGetAllByIndex("documents", "by_clientId", clientId);
+  return (docs || []).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 /* -------------------------------------------
    Attach Extracted / OCR Text
 -------------------------------------------- */
 
-export async function attachExtractedText(
-  docId,
-  extractedText,
-  meta = {}
-) {
+export async function attachExtractedText(docId, extractedText, meta = {}) {
   const docs = await listAllDocuments();
   const found = docs.find((d) => d.id === docId);
   if (!found) return null;
 
   const safeText = extractedText || "";
 
-  const docCategory = classifyDocument(
-    safeText,
-    found.fileName || found.title || ""
-  );
+  // Classification (broad)
+  const docCategory = classifyDocument(safeText, found.fileName || found.title || "");
 
+  // Section extraction
   const sectionMap = extractSections(safeText);
 
   const updated = {
@@ -156,10 +149,7 @@ export async function attachExtractedText(
     extractedText: safeText,
     extractedAt: new Date().toISOString(),
     extractionMethod: meta.extractionMethod || found.extractionMethod || "",
-    ocrConfidence:
-      typeof meta.ocrConfidence === "number"
-        ? meta.ocrConfidence
-        : found.ocrConfidence ?? null,
+    ocrConfidence: typeof meta.ocrConfidence === "number" ? meta.ocrConfidence : found.ocrConfidence ?? null,
 
     // ✅ Always-populated structured fields
     docCategory,
