@@ -1,19 +1,10 @@
-import mockClients from "../data/mockClients";
+// src/components/Sidebar.jsx
 import mockZones from "../data/mockZones";
-import { loadClients } from "../data/clientsStore";
+import { useActiveClient } from "../context/ActiveClientContext";
 
 export default function Sidebar({ selectedZone, setSelectedZone }) {
-  // Prefer real clients from clientsStore; fallback to mockClients
-  const real = (() => {
-    try {
-      const c = loadClients();
-      return c && c.length > 0 ? c : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  const clients = real || mockClients;
+  const { clients, activeClientId, setActiveClientId, activeClient } =
+    useActiveClient();
 
   return (
     <aside className="sidebar">
@@ -23,8 +14,13 @@ export default function Sidebar({ selectedZone, setSelectedZone }) {
           <div>
             <div style={{ fontWeight: 700 }}>Theraa Nurse v1.0</div>
             <div style={{ fontSize: 11, color: "#6b7280" }}>
-              Service delivery optimisation
+              Service delivery optimisation MVP
             </div>
+            {activeClient ? (
+              <div style={{ fontSize: 11, color: "#111827", marginTop: 6 }}>
+                Active: <b>{activeClient.name}</b>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -46,14 +42,33 @@ export default function Sidebar({ selectedZone, setSelectedZone }) {
       </div>
 
       <div>
-        <div className="sidebar-clients-title">Active clients</div>
-        {clients.map((c) => (
-          <div key={c.id} className="sidebar-client-card">
-            <div style={{ fontWeight: 600 }}>{c.name}</div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>
-              {c.age} yrs · {c.primaryZone}
-            </div>
+        <div className="sidebar-clients-title">Clients</div>
+        {(!clients || clients.length === 0) && (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            No clients yet — add on Clients page.
           </div>
+        )}
+
+        {clients?.map((c) => (
+          <button
+            key={c.id}
+            className="sidebar-client-card"
+            style={{
+              width: "100%",
+              textAlign: "left",
+              cursor: "pointer",
+              border:
+                c.id === activeClientId ? "1px solid #2563eb" : "1px solid #e5e7eb",
+              background: c.id === activeClientId ? "#eff6ff" : "white",
+            }}
+            onClick={() => setActiveClientId(c.id)}
+            title="Set as active client"
+          >
+            <div style={{ fontWeight: 700 }}>{c.name}</div>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>
+              {c.age} yrs · {c.primaryZone || "—"}
+            </div>
+          </button>
         ))}
       </div>
     </aside>

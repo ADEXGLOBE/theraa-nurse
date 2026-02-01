@@ -1,17 +1,19 @@
+// src/App.jsx
 import { useState } from "react";
-import Sidebar from "./components/Sidebar.jsx";
-
-import HomeDashboard from "./pages/HomeDashboard";
-import Clients from "./pages/Clients";
-import ClientFiles from "./pages/ClientFiles";
-import CarePlanZone from "./pages/CarePlanZone";
-import ClientInsights from "./pages/ClientInsights";
+import Sidebar from "./components/Sidebar";
 
 import TherapyZone from "./pages/TherapyZone";
 import MedicationZone from "./pages/MedicationZone";
 import StaffZone from "./pages/StaffZone";
 import VpnZone from "./pages/VpnZone";
 import ParamedicZone from "./pages/ParamedicZone";
+import CarePlanZone from "./pages/CarePlanZone";
+import ClientFiles from "./pages/ClientFiles";
+import Clients from "./pages/Clients";
+import ClientInsights from "./pages/ClientInsights";
+import HomeDashboard from "./pages/HomeDashboard";
+
+import { ActiveClientProvider } from "./context/ActiveClientContext";
 
 export default function App() {
   const [selectedZone, setSelectedZone] = useState("home");
@@ -20,44 +22,35 @@ export default function App() {
     switch (selectedZone) {
       case "home":
         return <HomeDashboard />;
-
       case "clients":
         return <Clients />;
-
       case "documents":
         return <ClientFiles />;
-
-      case "careplan":
-        return <CarePlanZone />;
-
-      case "therapy":
-        return <TherapyZone />;
-
-      case "meds":
-        return <MedicationZone />;
-
-      case "staff":
-        return <StaffZone />;
-
-      case "vpn":
-        return <VpnZone />;
-
-      case "paramedic":
-        return <ParamedicZone />;
-
       case "insights":
         return <ClientInsights />;
-
-
+      case "careplan":
+        return <CarePlanZone />;
+      case "therapy":
+        return <TherapyZone />;
+      case "meds":
+        return <MedicationZone />;
+      case "staff":
+        return <StaffZone />;
+      case "vpn":
+        return <VpnZone />;
+      case "paramedic":
+        return <ParamedicZone />;
       default:
         return <HomeDashboard />;
     }
   };
 
   return (
-    <div className="app-root">
-      <Sidebar selectedZone={selectedZone} setSelectedZone={setSelectedZone} />
-      <main className="main-content">{renderMain()}</main>
-    </div>
+    <ActiveClientProvider>
+      <div className="app-root">
+        <Sidebar selectedZone={selectedZone} setSelectedZone={setSelectedZone} />
+        <main className="main-content">{renderMain()}</main>
+      </div>
+    </ActiveClientProvider>
   );
 }

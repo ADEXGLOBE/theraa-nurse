@@ -1,16 +1,31 @@
-import { useState } from "react";
+// src/pages/VpnZone.jsx
+import { useEffect, useMemo, useState } from "react";
 import { loadSessions, saveSessions } from "../data/sessionStore";
-import mockClients from "../data/mockClients";
+import { loadClients } from "../data/clientsStore";
+import { useActiveClient } from "../context/ActiveClientContext";
+import ClientSelectorBar from "../components/ClientSelectorBar";
 
 export default function VpnZone() {
-  const [selectedClientId, setSelectedClientId] = useState(mockClients[0].id);
+  const { activeClientId } = useActiveClient();
+  const clients = useMemo(() => loadClients(), []);
+  const fallbackId = clients[0]?.id || "";
+
+  const [selectedClientId, setSelectedClientId] = useState(activeClientId || fallbackId);
   const [remoteType, setRemoteType] = useState("");
   const [participants, setParticipants] = useState("");
   const [summary, setSummary] = useState("");
 
-  const selectedClient = mockClients.find((c) => c.id === selectedClientId);
+  useEffect(() => {
+    if (activeClientId) setSelectedClientId(activeClientId);
+  }, [activeClientId]);
+
+  const selectedClient = useMemo(
+    () => clients.find((c) => c.id === selectedClientId) || null,
+    [clients, selectedClientId]
+  );
 
   const handleSaveRemote = () => {
+    if (!selectedClientId) return alert("Select a client first.");
     const all = loadSessions();
     const timestamp = new Date().toISOString();
 
@@ -25,10 +40,7 @@ export default function VpnZone() {
 
     const updated = {
       ...all,
-      [selectedClientId]: [
-        payload,
-        ...(all[selectedClientId] || []),
-      ],
+      [selectedClientId]: [payload, ...(all[selectedClientId] || [])],
     };
 
     saveSessions(updated);
@@ -38,44 +50,44 @@ export default function VpnZone() {
     setSummary("");
   };
 
+  if (!clients.length) {
+    return (
+      <div className="card">
+        <div className="card-title">VPN / Remote Zone</div>
+        <div className="card-subtitle">No clients found. Add a client in Clients first.</div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">VPN / Remote Zone</h1>
           <p className="page-subtitle">
-            Conceptual view of your remote access idea — family, telehealth and
-            paramedics can all have visibility over recent sessions for safer care.
+            Log family calls, telehealth, case conferences — builds safer continuity of care.
           </p>
           {selectedClient && (
             <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
-              Client: <strong>{selectedClient.name}</strong> (
-              {selectedClient.age} yrs)
+              Client: <strong>{selectedClient.name}</strong> ({selectedClient.age} yrs)
             </div>
           )}
         </div>
         <div style={{ fontSize: 12, color: "#6b7280", textAlign: "right" }}>
           Theraa Nurse · Remote & Family Portal
-          <br />
-          Linked concept: VPN / remote segment in Packet Tracer.
         </div>
       </div>
 
+      <ClientSelectorBar />
+
       <div className="card">
         <div className="card-title">Log a remote interaction</div>
-        <div className="card-subtitle">
-          This could be a family video call, telehealth appointment or external care
-          coordination.
-        </div>
+        <div className="card-subtitle">Family call, telehealth, or care coordination session.</div>
 
         <label className="section-title-sm">
           Client
-          <select
-            className="input"
-            value={selectedClientId}
-            onChange={(e) => setSelectedClientId(e.target.value)}
-          >
-            {mockClients.map((c) => (
+          <select className="input" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+            {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.age})
               </option>
@@ -85,11 +97,7 @@ export default function VpnZone() {
 
         <label className="section-title-sm">
           Remote session type
-          <select
-            className="input"
-            value={remoteType}
-            onChange={(e) => setRemoteType(e.target.value)}
-          >
+          <select className="input" value={remoteType} onChange={(e) => setRemoteType(e.target.value)}>
             <option value="">Select…</option>
             <option value="familyCall">Family / friend video call</option>
             <option value="telehealth">Telehealth with GP / specialist</option>
@@ -103,7 +111,7 @@ export default function VpnZone() {
             className="input"
             value={participants}
             onChange={(e) => setParticipants(e.target.value)}
-            placeholder="Example: Daughter on Zoom, GP, OT, support worker..."
+            placeholder="Example: daughter on Zoom, GP, OT, SW..."
           />
         </label>
 
@@ -114,15 +122,11 @@ export default function VpnZone() {
             rows={4}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="Key outcomes, follow-up actions, changes to support plan..."
+            placeholder="Outcomes, follow-ups, changes to support plan..."
           />
         </label>
 
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={handleSaveRemote}
-        >
+        <button type="button" className="btn-primary" onClick={handleSaveRemote}>
           💾 Save remote interaction
         </button>
       </div>
