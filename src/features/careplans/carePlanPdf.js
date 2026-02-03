@@ -1,210 +1,247 @@
 // src/features/careplans/carePlanPdf.js
 import jsPDF from "jspdf";
 
-function safeArray(x) {
-  return Array.isArray(x) ? x : [];
-}
-
-function formatDate(iso) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return "";
-  }
-}
+/**
+ * Professional PDF export for Theraa Nurse care plans:
+ * - Bigger fonts
+ * - Sectioned layout
+ * - Word wrapping
+ * - Page breaks
+ * - Supports legacy flat-plan fields AND structured plan.sections
+ */
 
 export function generateCarePlanPdf({ client, planVersion }) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+  // Page / layout constants
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-
-  let y = 15;
-
   const marginX = 14;
   const maxWidth = pageWidth - marginX * 2;
 
-  const ensurePage = (needed = 8) => {
-    if (y + needed > pageHeight - 12) {
+  let y = 14;
+
+  const safe = (v) => (v == null ? "" : String(v));
+
+  const newPageIfNeeded = (required = 8) => {
+    if (y + required > pageHeight - 14) {
       doc.addPage();
-      y = 15;
+      y = 14;
     }
   };
 
-  const line = (text, fontSize = 11, gap = 6) => {
-    ensurePage(gap + 2);
-    doc.setFontSize(fontSize);
-    doc.text(String(text || "—"), marginX, y);
-    y += gap;
-  };
-
-  const block = (text, fontSize = 11, gap = 6) => {
-    const content = String(text || "—");
-    doc.setFontSize(fontSize);
-    const lines = doc.splitTextToSize(content, maxWidth);
-    for (const l of lines) {
-      ensurePage(gap + 2);
-      doc.text(l, marginX, y);
-      y += gap;
-    }
-  };
-
-  const heading = (text) => {
-    y += 2;
-    ensurePage(10);
-    doc.setFontSize(13);
-    doc.text(String(text), marginX, y);
-    y += 7;
-  };
-
-  const subheading = (text) => {
-    ensurePage(8);
-    doc.setFontSize(12);
-    doc.text(String(text), marginX, y);
+  const hr = () => {
+    newPageIfNeeded(6);
+    doc.setDrawColor(220);
+    doc.line(marginX, y, pageWidth - marginX, y);
     y += 6;
   };
 
-  const bullet = (text) => {
-    const prefix = "• ";
-    const content = String(text || "—");
-    doc.setFontSize(11);
-    const lines = doc.splitTextToSize(prefix + content, maxWidth);
-    for (const l of lines) {
-      ensurePage(6 + 2);
-      doc.text(l, marginX, y);
-      y += 6;
-    }
+  const title = (text) => {
+    newPageIfNeeded(10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text(text, marginX, y);
+    y += 10;
   };
 
+  const subTitle = (text) => {
+    newPageIfNeeded(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(text, marginX, y);
+    y += 7;
+  };
+
+  const heading = (text) => {
+    newPageIfNeeded(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(text, marginX, y);
+    y += 7;
+  };
+
+  const paragraph = (text, fontSize = 11, lineGap = 5.2) => {
+    const t = safe(text).trim() || "—";
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fontSize);
+
+    const lines = doc.splitTextToSize(t, maxWidth);
+    for (const line of lines) {
+      newPageIfNeeded(lineGap);
+      doc.text(line, marginX, y);
+      y += lineGap;
+    }
+    y += 1;
+  };
+
+  const bulletList = (items = [], fontSize = 11, lineGap = 5.2) => {
+    const arr = Array.isArray(items) ? items : [];
+    if (!arr.length) return paragraph("—", fontSize, lineGap);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fontSize);
+
+    for (const item of arr) {
+      const t = safe(item).trim();
+      if (!t) continue;
+
+      const wrapped = doc.splitTextToSize(`• ${t}`, maxWidth);
+      for (const line of wrapped) {
+        newPageIfNeeded(lineGap);
+        doc.text(line, marginX, y);
+        y += lineGap;
+      }
+      y += 1;
+    }
+    y += 1;
+  };
+
+  // Helpers to support both "legacy" and "structured" plans
   const plan = planVersion?.plan || {};
-  const suggestions = plan?.suggestions || {};
-  const suggestedWorker = safeArray(suggestions.worker);
-  const suggestedClient = safeArray(suggestions.client);
-  const approvedWorker = safeArray(suggestions.approvedWorker);
-  const approvedClient = safeArray(suggestions.approvedClient);
+  const sections = plan?.sections || {};
 
-  // Title
-  doc.setFontSize(16);
-  line("Theraa Nurse – Care Plan", 16, 8);
+  const getLegacyOrSection = (legacyKey, sectionKey) => {
+    if (safe(plan?.[legacyKey]).trim()) return plan[legacyKey];
+    if (safe(sections?.[sectionKey]).trim()) return sections[sectionKey];
+    return "";
+  };
 
-  doc.setFontSize(11);
-  y += 2;
+  const getArray = (maybeArray, fallback = []) => {
+    if (Array.isArray(maybeArray)) return maybeArray.filter(Boolean);
+    return fallback;
+  };
 
-  // Header fields
-  line(`Client: ${client?.name || "—"}`);
-  line(`Age: ${client?.age ?? "—"}`);
-  line(`Client ID: ${client?.id || "—"}`);
-  line(`Plan status: ${planVersion?.status || "—"}`);
-  line(`Created: ${formatDate(planVersion?.createdAt) || "—"}`);
-  line(`Evidence items used: ${planVersion?.evidenceCount || 0}`);
+  const createdAt = planVersion?.createdAt
+    ? new Date(planVersion.createdAt).toLocaleString()
+    : new Date().toLocaleString();
 
-  if (plan?.suggestionsGeneratedAt) {
-    line(`Suggestions generated: ${formatDate(plan.suggestionsGeneratedAt)}`);
+  // ---- Header ----
+  title("Theraa Nurse — Care Plan");
+  subTitle("Versioned · Evidence-bound · Reviewable");
+  hr();
+
+  // ---- Client identity ----
+  heading("Participant Details & Plan Information");
+  paragraph(`Client: ${safe(client?.name) || "—"}`);
+  paragraph(`Age: ${safe(client?.age) || "—"}`);
+  paragraph(`Client ID: ${safe(client?.id) || "—"}`);
+  paragraph(`Plan status: ${safe(planVersion?.status) || "draft"}`);
+  paragraph(`Created: ${createdAt}`);
+  paragraph(`Evidence items used: ${safe(planVersion?.evidenceCount ?? 0)}`);
+
+  // Optional: if you later add NDIS fields into client record
+  if (client?.ndisNumber || client?.dob || client?.planStart || client?.planReviewDue) {
+    hr();
+    heading("NDIS & Plan Identifiers");
+    if (client?.ndisNumber) paragraph(`NDIS Number: ${safe(client.ndisNumber)}`);
+    if (client?.dob) paragraph(`DOB: ${safe(client.dob)}`);
+    if (client?.planStart) paragraph(`Plan start date: ${safe(client.planStart)}`);
+    if (client?.planReviewDue) paragraph(`Plan review due: ${safe(client.planReviewDue)}`);
   }
 
-  y += 4;
+  hr();
 
-  // Core plan sections
-  heading("Short-term goals");
-  block(plan.goalsShort || "—");
+  // ---- Goals ----
+  heading("Participant Goals (NDIS-aligned)");
+  subTitle("Short-term goals");
+  paragraph(getLegacyOrSection("goalsShort", "goalsShort"));
 
-  y += 2;
-  heading("Long-term goals");
-  block(plan.goalsLong || "—");
+  subTitle("Long-term goals");
+  paragraph(getLegacyOrSection("goalsLong", "goalsLong"));
 
-  y += 2;
-  heading("Risks & safety considerations");
-  block(plan.risks || "—");
+  hr();
 
-  y += 2;
-  heading("Communication strategies");
-  block(plan.communication || "—");
+  // ---- Strengths / preferences ----
+  heading("Current Abilities, Strengths & Interests");
+  paragraph(sections?.strengths || plan?.strengths || "—");
 
-  y += 2;
-  heading("Supports");
-  block(plan.supports || "—");
+  heading("Daily Routines & Preferences");
+  paragraph(sections?.routinesAndPreferences || plan?.routinesAndPreferences || "—");
 
-  y += 2;
-  heading("Legal & ethical notes");
-  block(plan.legalEthical || "—");
+  hr();
 
-  // To-Dos Section
-  y += 4;
-  heading("To-Do / Suggestions (Approval Required)");
+  // ---- Functional needs ----
+  heading("Functional Support Needs");
+  paragraph(sections?.functionalNeeds || plan?.functionalNeeds || plan?.supports || "—");
 
-  // Suggested Worker
-  subheading("Suggested Worker To-Dos (requires approval)");
-  if (suggestedWorker.length === 0) {
-    block("— None —");
-  } else {
-    suggestedWorker.forEach((t, idx) => {
-      bullet(`${idx + 1}. ${t.title || "To-Do"}`);
-      if (t.frequency) bullet(`Frequency: ${t.frequency}`);
-      if (t.detail) bullet(`Details: ${t.detail}`);
-      if (t.reason) bullet(`Evidence: ${t.reason}`);
-      y += 2;
-    });
+  hr();
+
+  // ---- Clinical / health ----
+  heading("Health & Clinical Considerations (scope-safe)");
+  paragraph(sections?.healthClinical || plan?.healthClinical || "—");
+
+  hr();
+
+  // ---- Risks ----
+  heading("Risk Assessment & Management Strategies");
+  paragraph(getLegacyOrSection("risks", "risks"));
+
+  // If you have structured risks list:
+  if (Array.isArray(sections?.riskControls) && sections.riskControls.length) {
+    subTitle("Risk controls");
+    bulletList(sections.riskControls);
   }
 
-  // Suggested Client
-  subheading("Suggested Client To-Dos (requires approval)");
-  if (suggestedClient.length === 0) {
-    block("— None —");
-  } else {
-    suggestedClient.forEach((t, idx) => {
-      bullet(`${idx + 1}. ${t.title || "To-Do"}`);
-      if (t.frequency) bullet(`Frequency: ${t.frequency}`);
-      if (t.detail) bullet(`Details: ${t.detail}`);
-      if (t.reason) bullet(`Evidence: ${t.reason}`);
-      y += 2;
-    });
+  hr();
+
+  // ---- Behaviour support ----
+  heading("Behaviour Support (if applicable)");
+  paragraph(sections?.behaviourSupport || plan?.behaviourSupport || "—");
+
+  hr();
+
+  // ---- Communication + consent ----
+  heading("Communication & Decision-Making Preferences");
+  paragraph(getLegacyOrSection("communication", "communication"));
+
+  heading("Safeguards, Privacy & Consent");
+  paragraph(sections?.safeguardsConsent || plan?.safeguardsConsent || "—");
+
+  hr();
+
+  // ---- Monitoring ----
+  heading("Monitoring, Review & Outcomes Tracking");
+  paragraph(sections?.monitoringReview || plan?.monitoringReview || "—");
+
+  hr();
+
+  // ---- To-Dos + approvals ----
+  heading("To-Do / Suggestions (subject to approval)");
+
+  const todos = plan?.todos || {};
+  const clientTodos = getArray(todos?.client);
+  const workerTodos = getArray(todos?.worker);
+
+  subTitle("Client to-dos (participant actions)");
+  bulletList(clientTodos.length ? clientTodos : ["No client suggestions generated yet."]);
+
+  subTitle("Worker to-dos (support actions)");
+  bulletList(workerTodos.length ? workerTodos : ["No worker suggestions generated yet."]);
+
+  // Approval summary (if present)
+  const approvals = plan?.approvals || {};
+  const approvedClient = getArray(approvals?.approvedClient);
+  const approvedWorker = getArray(approvals?.approvedWorker);
+
+  if (approvedClient.length || approvedWorker.length) {
+    hr();
+    heading("Approved To-Dos (active)");
+    subTitle("Approved client to-dos");
+    bulletList(approvedClient.length ? approvedClient : ["—"]);
+
+    subTitle("Approved worker to-dos");
+    bulletList(approvedWorker.length ? approvedWorker : ["—"]);
   }
 
-  // Approved Worker
-  y += 2;
-  heading("Approved To-Dos (Operational)");
+  hr();
 
-  subheading("Approved Worker To-Dos (what workers should follow)");
-  if (approvedWorker.length === 0) {
-    block("— None approved yet —");
-  } else {
-    approvedWorker.forEach((t, idx) => {
-      bullet(`${idx + 1}. ${t.title || "To-Do"}`);
-      if (t.frequency) bullet(`Frequency: ${t.frequency}`);
-      if (t.detail) bullet(`Details: ${t.detail}`);
-      if (t.reason) bullet(`Evidence: ${t.reason}`);
-      if (t.approvedBy || t.approvedAt) {
-        bullet(
-          `Approved: ${t.approvedBy ? `by ${t.approvedBy}` : ""}${t.approvedAt ? ` at ${formatDate(t.approvedAt)}` : ""}`.trim()
-        );
-      }
-      y += 2;
-    });
-  }
+  // ---- Sign-off ----
+  heading("Signatures & Acknowledgements");
+  paragraph("Participant / Representative: ________________________________");
+  paragraph("Provider / Coordinator: ______________________________________");
+  paragraph("Date: ______________________");
 
-  // Approved Client
-  subheading("Approved Client To-Dos (what the client should start doing)");
-  if (approvedClient.length === 0) {
-    block("— None approved yet —");
-  } else {
-    approvedClient.forEach((t, idx) => {
-      bullet(`${idx + 1}. ${t.title || "To-Do"}`);
-      if (t.frequency) bullet(`Frequency: ${t.frequency}`);
-      if (t.detail) bullet(`Details: ${t.detail}`);
-      if (t.reason) bullet(`Evidence: ${t.reason}`);
-      if (t.approvedBy || t.approvedAt) {
-        bullet(
-          `Approved: ${t.approvedBy ? `by ${t.approvedBy}` : ""}${t.approvedAt ? ` at ${formatDate(t.approvedAt)}` : ""}`.trim()
-        );
-      }
-      y += 2;
-    });
-  }
-
-  y += 2;
-  block(
-    "Approval workflow note: Suggested To-Dos are recommendations only. Workers/clients should follow Approved To-Dos after coordinator/authorised approval. For external approvals, export this PDF and email it for sign-off."
-  );
-
-  doc.save(`TheraaNurse-CarePlan-${(client?.name || "Client").replace(/\s+/g, "_")}.pdf`);
+  const fileName = `TheraaNurse-CarePlan-${(client?.name || "Client").replace(/\s+/g, "_")}.pdf`;
+  doc.save(fileName);
 }
