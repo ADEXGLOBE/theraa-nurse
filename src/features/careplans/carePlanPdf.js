@@ -23,6 +23,16 @@ export function generateCarePlanPdf({ client, planVersion }) {
 
   const safe = (v) => (v == null ? "" : String(v));
 
+  const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
+
+const toText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.filter(Boolean).map(String).join("\n");
+  if (typeof v === "object") return "";
+  return String(v);
+};
+
   const newPageIfNeeded = (required = 8) => {
     if (y + required > pageHeight - 14) {
       doc.addPage();
@@ -61,51 +71,56 @@ export function generateCarePlanPdf({ client, planVersion }) {
     y += 7;
   };
 
-  const paragraph = (text, fontSize = 11, lineGap = 5.2) => {
-    const t = safe(text).trim() || "—";
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(fontSize);
+const paragraph = (text, fontSize = 11, lineGap = 5.2) => {
+  const t = toText(text).trim() || "—";
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(fontSize);
 
-    const lines = doc.splitTextToSize(t, maxWidth);
-    for (const line of lines) {
+  const lines = doc.splitTextToSize(t, maxWidth);
+  for (const line of lines) {
+    newPageIfNeeded(lineGap);
+    doc.text(line, marginX, y);
+    y += lineGap;
+  }
+  y += 1;
+};
+
+
+const bulletList = (items = [], fontSize = 11, lineGap = 5.2) => {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return paragraph("—", fontSize, lineGap);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(fontSize);
+
+  const indent = 4;
+
+  for (const item of arr) {
+    const t = safe(item).trim();
+    if (!t) continue;
+
+    const wrapped = doc.splitTextToSize(t, maxWidth - indent);
+    wrapped.forEach((line, idx) => {
       newPageIfNeeded(lineGap);
-      doc.text(line, marginX, y);
+      const prefix = idx === 0 ? "• " : "  ";
+      doc.text(prefix + line, marginX, y);
       y += lineGap;
-    }
+    });
     y += 1;
-  };
+  }
+  y += 1;
+};
 
-  const bulletList = (items = [], fontSize = 11, lineGap = 5.2) => {
-    const arr = Array.isArray(items) ? items : [];
-    if (!arr.length) return paragraph("—", fontSize, lineGap);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(fontSize);
-
-    for (const item of arr) {
-      const t = safe(item).trim();
-      if (!t) continue;
-
-      const wrapped = doc.splitTextToSize(`• ${t}`, maxWidth);
-      for (const line of wrapped) {
-        newPageIfNeeded(lineGap);
-        doc.text(line, marginX, y);
-        y += lineGap;
-      }
-      y += 1;
-    }
-    y += 1;
-  };
 
   // Helpers to support both "legacy" and "structured" plans
   const plan = planVersion?.plan || {};
   const sections = plan?.sections || {};
 
-  const getLegacyOrSection = (legacyKey, sectionKey) => {
-    if (safe(plan?.[legacyKey]).trim()) return plan[legacyKey];
-    if (safe(sections?.[sectionKey]).trim()) return sections[sectionKey];
-    return "";
-  };
+const getLegacyOrSection = (legacyKey, sectionKey) => {
+  if (isNonEmptyString(plan?.[legacyKey])) return plan[legacyKey];
+  if (isNonEmptyString(sections?.[sectionKey])) return sections[sectionKey];
+  return "";
+};
 
   const getArray = (maybeArray, fallback = []) => {
     if (Array.isArray(maybeArray)) return maybeArray.filter(Boolean);
