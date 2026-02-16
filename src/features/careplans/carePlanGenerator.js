@@ -4,6 +4,7 @@
    Theraa Nurse Care Plan Generator (Docs → Findings → Plan)
    - Safe MVP: rules + structured suggestions
    - Preserves approvals when regenerating
+   - FIX: also populate plan.todos + plan.approvals arrays (UI/PDF compatibility)
 -------------------------------------------------------- */
 
 function normalize(text) {
@@ -62,6 +63,13 @@ function joinBullets(arr = []) {
   return a.map((x) => `- ${x}`).join("\n");
 }
 
+/* -------------------------------------------------------
+   Back-compat helpers:
+   We support BOTH:
+   - plan.suggestions (rich todo objects, approval workflow)
+   - plan.todos / plan.approvals (simple arrays used by UI/PDF)
+-------------------------------------------------------- */
+
 function ensureSuggestionsShape(plan) {
   const p = plan || {};
   const s = p.suggestions || {};
@@ -76,13 +84,84 @@ function ensureSuggestionsShape(plan) {
   };
 }
 
-function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
-  const existing = ensureSuggestionsShape(existingPlan);
-  const next = ensureSuggestionsShape(generated);
+function ensureTodosApprovalsShape(plan) {
+  const p = plan || {};
+  const todos = p.todos || {};
+  const approvals = p.approvals || {};
+  return {
+    ...p,
+    todos: {
+      worker: safeArray(todos.worker),
+      client: safeArray(todos.client),
+    },
+    approvals: {
+      approvedWorker: safeArray(approvals.approvedWorker),
+      approvedClient: safeArray(approvals.approvedClient),
+    },
+  };
+}
 
-  // Keep approvals from existing
+function formatTodoString(todoObj) {
+  if (!todoObj) return "";
+  const title = (todoObj.title || "").trim();
+  const detail = (todoObj.detail || "").trim();
+  const frequency = (todoObj.frequency || "").trim();
+
+  // clean, readable string for PDF + basic list UI
+  if (title && detail && frequency) return `${title} — ${detail} (${frequency})`;
+  if (title && detail) return `${title} — ${detail}`;
+  if (title && frequency) return `${title} (${frequency})`;
+  return title || detail || "";
+}
+
+function deriveTodosAndApprovalsFromSuggestions(plan) {
+  // Uses suggestions + approved suggestions to fill the basic arrays
+  const p = ensureTodosApprovalsShape(ensureSuggestionsShape(plan));
+
+  const pendingWorker = safeArray(p.suggestions.worker).map(formatTodoString).filter(Boolean);
+  const pendingClient = safeArray(p.suggestions.client).map(formatTodoString).filter(Boolean);
+
+  const approvedWorker = safeArray(p.suggestions.approvedWorker).map(formatTodoString).filter(Boolean);
+  const approvedClient = safeArray(p.suggestions.approvedClient).map(formatTodoString).filter(Boolean);
+
+  // Preserve any legacy strings already present (if UI used string approvals earlier)
+  const legacyApprovedWorker = safeArray(p.approvals.approvedWorker).filter(Boolean);
+  const legacyApprovedClient = safeArray(p.approvals.approvedClient).filter(Boolean);
+
+  const mergedApprovedWorker = uniqByKey(
+    [...approvedWorker, ...legacyApprovedWorker],
+    (x) => x
+  );
+  const mergedApprovedClient = uniqByKey(
+    [...approvedClient, ...legacyApprovedClient],
+    (x) => x
+  );
+
+  return {
+    ...p,
+    todos: {
+      worker: uniqByKey([...pendingWorker], (x) => x),
+      client: uniqByKey([...pendingClient], (x) => x),
+    },
+    approvals: {
+      approvedWorker: mergedApprovedWorker,
+      approvedClient: mergedApprovedClient,
+    },
+  };
+}
+
+function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
+  // Normalize both sides
+  const existing = ensureTodosApprovalsShape(ensureSuggestionsShape(existingPlan));
+  const next = ensureTodosApprovalsShape(ensureSuggestionsShape(generated));
+
+  // Keep rich approvals from existing (objects)
   next.suggestions.approvedWorker = safeArray(existing.suggestions.approvedWorker);
   next.suggestions.approvedClient = safeArray(existing.suggestions.approvedClient);
+
+  // Also keep legacy string approvals (if any)
+  next.approvals.approvedWorker = safeArray(existing.approvals.approvedWorker);
+  next.approvals.approvedClient = safeArray(existing.approvals.approvedClient);
 
   // Merge pending suggestions (existing pending + generated pending), but dedupe
   const mergedWorker = uniqByKey(
@@ -95,18 +174,29 @@ function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
     (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
   );
 
-  // Also: do not suggest items that are already approved
+  // Do not suggest items that are already approved (rich approvals)
   const approvedWorkerKeys = new Set(
-    safeArray(next.suggestions.approvedWorker).map((x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+    safeArray(next.suggestions.approvedWorker).map(
+      (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
+    )
   );
+
   const approvedClientKeys = new Set(
-    safeArray(next.suggestions.approvedClient).map((x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+    safeArray(next.suggestions.approvedClient).map(
+      (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
+    )
   );
 
-  next.suggestions.worker = mergedWorker.filter((x) => !approvedWorkerKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`));
-  next.suggestions.client = mergedClient.filter((x) => !approvedClientKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`));
+  next.suggestions.worker = mergedWorker.filter(
+    (x) => !approvedWorkerKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+  );
 
-  return next;
+  next.suggestions.client = mergedClient.filter(
+    (x) => !approvedClientKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+  );
+
+  // Finally: derive plan.todos + plan.approvals from suggestions
+  return deriveTodosAndApprovalsFromSuggestions(next);
 }
 
 /* -------------------------------------------------------
@@ -184,7 +274,7 @@ function makeTodo({ who, title, detail, frequency, reason, source }) {
   const key = `${who}|${title || ""}|${detail || ""}|${frequency || ""}|${reason || ""}`.trim();
   return {
     id: uid(who),
-    key, // stable-ish dedupe key
+    key,
     who, // "worker" | "client"
     status: "pending",
     title: title || "",
@@ -203,7 +293,7 @@ function generateWorkerTodos(findings) {
   const triggers = safeArray(findings?.triggers);
   const medsFlags = safeArray(findings?.medsFlags);
 
-  // Core worker governance
+  // Always include at least one worker todo (prevents empty arrays)
   t.push(
     makeTodo({
       who: "worker",
@@ -214,7 +304,6 @@ function generateWorkerTodos(findings) {
     })
   );
 
-  // Risks
   if (risks.some((r) => lower(r).includes("falls"))) {
     t.push(
       makeTodo({
@@ -275,7 +364,6 @@ function generateWorkerTodos(findings) {
     );
   }
 
-  // Triggers
   if (triggers.length > 0) {
     t.push(
       makeTodo({
@@ -288,7 +376,6 @@ function generateWorkerTodos(findings) {
     );
   }
 
-  // Preferences
   if (prefs.some((p) => lower(p).includes("calming"))) {
     t.push(
       makeTodo({
@@ -301,7 +388,6 @@ function generateWorkerTodos(findings) {
     );
   }
 
-  // Medication flags
   if (medsFlags.length > 0) {
     t.push(
       makeTodo({
@@ -314,7 +400,6 @@ function generateWorkerTodos(findings) {
     );
   }
 
-  // Evidence quality (NDIS)
   t.push(
     makeTodo({
       who: "worker",
@@ -334,7 +419,7 @@ function generateClientTodos(findings) {
   const goals = safeArray(findings?.goals);
   const prefs = safeArray(findings?.preferences);
 
-  // General wellbeing (safe, non-clinical)
+  // Always include at least one client todo (prevents empty arrays)
   t.push(
     makeTodo({
       who: "client",
@@ -345,7 +430,6 @@ function generateClientTodos(findings) {
     })
   );
 
-  // Mobility goal
   if (goals.some((g) => lower(g).includes("mobility")) || risks.some((r) => lower(r).includes("falls"))) {
     t.push(
       makeTodo({
@@ -358,7 +442,6 @@ function generateClientTodos(findings) {
     );
   }
 
-  // Distress/anxiety
   if (risks.some((r) => lower(r).includes("distress") || lower(r).includes("anxiety"))) {
     t.push(
       makeTodo({
@@ -371,7 +454,6 @@ function generateClientTodos(findings) {
     );
   }
 
-  // Routine/structure
   if (goals.some((g) => lower(g).includes("routine")) || prefs.some((p) => lower(p).includes("routine"))) {
     t.push(
       makeTodo({
@@ -384,7 +466,6 @@ function generateClientTodos(findings) {
     );
   }
 
-  // Productivity/vocational
   if (goals.some((g) => lower(g).includes("productivity") || lower(g).includes("vocational"))) {
     t.push(
       makeTodo({
@@ -397,7 +478,6 @@ function generateClientTodos(findings) {
     );
   }
 
-  // Social participation
   if (goals.some((g) => lower(g).includes("community") || lower(g).includes("social"))) {
     t.push(
       makeTodo({
@@ -410,7 +490,6 @@ function generateClientTodos(findings) {
     );
   }
 
-  // Calm preference
   if (prefs.some((p) => lower(p).includes("calming"))) {
     t.push(
       makeTodo({
@@ -431,10 +510,9 @@ function generateClientTodos(findings) {
 -------------------------------------------------------- */
 
 export function generateCarePlanDraft({ client, findings, recentSessions = [], existingPlan = null }) {
-  const existing = ensureSuggestionsShape(existingPlan || {});
+  const existing = ensureTodosApprovalsShape(ensureSuggestionsShape(existingPlan || {}));
   const clientName = client?.name || "Client";
 
-  // Build text blocks for editable fields (simple MVP UI fields)
   const shortGoals = safeArray(findings?.goals).slice(0, 3);
   const longGoals = safeArray(findings?.goals).slice(3);
 
@@ -487,36 +565,41 @@ export function generateCarePlanDraft({ client, findings, recentSessions = [], e
       "Escalate safety concerns according to organisational policy; call 000 in emergencies.",
     ]);
 
-  // Generate pending suggestions from findings
+  // Generate pending suggestions from findings (these should never be empty now)
   const newWorker = generateWorkerTodos(findings);
   const newClient = generateClientTodos(findings);
 
   // Create draft plan
-  const draft = ensureSuggestionsShape({
-    title: `Care Plan Draft — ${clientName}`,
-    generatedAt: new Date().toISOString(),
-    clientId: client?.id || "",
+  const draft = ensureTodosApprovalsShape(
+    ensureSuggestionsShape({
+      title: `Care Plan Draft — ${clientName}`,
+      generatedAt: new Date().toISOString(),
+      clientId: client?.id || "",
 
-    // Editable UI fields
-    goalsShort: goalsShortText,
-    goalsLong: goalsLongText,
-    risks: risksText,
-    communication: communicationText,
-    supports: supportsText,
-    legalEthical: legalEthicalText,
+      // Editable UI fields
+      goalsShort: goalsShortText,
+      goalsLong: goalsLongText,
+      risks: risksText,
+      communication: communicationText,
+      supports: supportsText,
+      legalEthical: legalEthicalText,
 
-    // Suggestions payload
-    suggestionsGeneratedAt: new Date().toISOString(),
-    suggestions: {
-      worker: newWorker,
-      client: newClient,
-      // approvals preserved via merge below
-      approvedWorker: [],
-      approvedClient: [],
-    },
-  });
+      // Suggestions payload (rich objects)
+      suggestionsGeneratedAt: new Date().toISOString(),
+      suggestions: {
+        worker: newWorker,
+        client: newClient,
+        approvedWorker: [], // preserved by merge
+        approvedClient: [], // preserved by merge
+      },
 
-  // Merge, preserving approvals + avoiding duplicates
+      // Back-compat arrays (filled after merge)
+      todos: { worker: [], client: [] },
+      approvals: { approvedWorker: [], approvedClient: [] },
+    })
+  );
+
+  // Merge, preserving approvals + avoiding duplicates + derive todos/approvals
   const merged = mergeSuggestionsPreservingApprovals(existing, draft);
 
   return merged;
