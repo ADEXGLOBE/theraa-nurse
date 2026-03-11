@@ -1,4 +1,4 @@
-const STORAGE_KEY = "theraaNurseSessions_v2";
+const STORAGE_KEY = "theraaNurseSessions_v3";
 
 export function loadSessions() {
   try {
@@ -16,4 +16,24 @@ export function saveSessions(all) {
   } catch (e) {
     console.error("Failed to save sessions", e);
   }
+}
+
+/* NEW */
+
+export function addSession(clientId, session) {
+
+  const sessions = loadSessions();
+
+  if (!sessions[clientId]) {
+    sessions[clientId] = [];
+  }
+
+  sessions[clientId].push({
+    ...session,
+    id: Date.now(),
+    createdAt: new Date().toISOString()
+  });
+
+  saveSessions(sessions);
+
 }

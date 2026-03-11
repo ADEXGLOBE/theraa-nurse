@@ -1,49 +1,35 @@
 // src/features/careplans/carePlanGenerator.js
-
-/* -------------------------------------------------------
-   Theraa Nurse Care Plan Generator (Docs → Findings → Plan)
-   - Safe MVP: rules + structured suggestions
-   - Preserves approvals when regenerating
-   - FIX: also populate plan.todos + plan.approvals arrays (UI/PDF compatibility)
--------------------------------------------------------- */
+// UPDATED: outputs BOTH {todos, approvals} (strings) and {suggestions} (objects)
+// so your UI always shows To-Dos.
 
 function normalize(text) {
   return (text || "").replace(/\s+/g, " ").trim();
 }
-
 function lower(text) {
   return (text || "").toLowerCase();
 }
-
 function findAny(text, keywords = []) {
   const t = lower(text);
   return keywords.some((k) => t.includes(lower(k)));
 }
-
 function extractListByKeywords(text, keywords) {
   const t = lower(text || "");
   const hits = [];
-  for (const k of keywords) {
-    if (t.includes(lower(k))) hits.push(k);
-  }
+  for (const k of keywords) if (t.includes(lower(k))) hits.push(k);
   return [...new Set(hits)];
 }
-
 function makeRiskLevel(risks) {
   const high = ["falls", "shortness of breath", "chest pain", "suicid", "wandering", "abscond", "self-harm"];
   if (risks.some((r) => high.some((h) => lower(r).includes(h)))) return "High";
   if (risks.length >= 2) return "Medium";
   return risks.length ? "Low" : "Unknown";
 }
-
 function uid(prefix = "todo") {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
 }
-
 function safeArray(x) {
   return Array.isArray(x) ? x : [];
 }
-
 function uniqByKey(items, keyFn) {
   const seen = new Set();
   const out = [];
@@ -56,153 +42,13 @@ function uniqByKey(items, keyFn) {
   }
   return out;
 }
-
 function joinBullets(arr = []) {
   const a = safeArray(arr).filter(Boolean);
   if (a.length === 0) return "";
   return a.map((x) => `- ${x}`).join("\n");
 }
 
-/* -------------------------------------------------------
-   Back-compat helpers:
-   We support BOTH:
-   - plan.suggestions (rich todo objects, approval workflow)
-   - plan.todos / plan.approvals (simple arrays used by UI/PDF)
--------------------------------------------------------- */
-
-function ensureSuggestionsShape(plan) {
-  const p = plan || {};
-  const s = p.suggestions || {};
-  return {
-    ...p,
-    suggestions: {
-      worker: safeArray(s.worker),
-      client: safeArray(s.client),
-      approvedWorker: safeArray(s.approvedWorker),
-      approvedClient: safeArray(s.approvedClient),
-    },
-  };
-}
-
-function ensureTodosApprovalsShape(plan) {
-  const p = plan || {};
-  const todos = p.todos || {};
-  const approvals = p.approvals || {};
-  return {
-    ...p,
-    todos: {
-      worker: safeArray(todos.worker),
-      client: safeArray(todos.client),
-    },
-    approvals: {
-      approvedWorker: safeArray(approvals.approvedWorker),
-      approvedClient: safeArray(approvals.approvedClient),
-    },
-  };
-}
-
-function formatTodoString(todoObj) {
-  if (!todoObj) return "";
-  const title = (todoObj.title || "").trim();
-  const detail = (todoObj.detail || "").trim();
-  const frequency = (todoObj.frequency || "").trim();
-
-  // clean, readable string for PDF + basic list UI
-  if (title && detail && frequency) return `${title} — ${detail} (${frequency})`;
-  if (title && detail) return `${title} — ${detail}`;
-  if (title && frequency) return `${title} (${frequency})`;
-  return title || detail || "";
-}
-
-function deriveTodosAndApprovalsFromSuggestions(plan) {
-  // Uses suggestions + approved suggestions to fill the basic arrays
-  const p = ensureTodosApprovalsShape(ensureSuggestionsShape(plan));
-
-  const pendingWorker = safeArray(p.suggestions.worker).map(formatTodoString).filter(Boolean);
-  const pendingClient = safeArray(p.suggestions.client).map(formatTodoString).filter(Boolean);
-
-  const approvedWorker = safeArray(p.suggestions.approvedWorker).map(formatTodoString).filter(Boolean);
-  const approvedClient = safeArray(p.suggestions.approvedClient).map(formatTodoString).filter(Boolean);
-
-  // Preserve any legacy strings already present (if UI used string approvals earlier)
-  const legacyApprovedWorker = safeArray(p.approvals.approvedWorker).filter(Boolean);
-  const legacyApprovedClient = safeArray(p.approvals.approvedClient).filter(Boolean);
-
-  const mergedApprovedWorker = uniqByKey(
-    [...approvedWorker, ...legacyApprovedWorker],
-    (x) => x
-  );
-  const mergedApprovedClient = uniqByKey(
-    [...approvedClient, ...legacyApprovedClient],
-    (x) => x
-  );
-
-  return {
-    ...p,
-    todos: {
-      worker: uniqByKey([...pendingWorker], (x) => x),
-      client: uniqByKey([...pendingClient], (x) => x),
-    },
-    approvals: {
-      approvedWorker: mergedApprovedWorker,
-      approvedClient: mergedApprovedClient,
-    },
-  };
-}
-
-function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
-  // Normalize both sides
-  const existing = ensureTodosApprovalsShape(ensureSuggestionsShape(existingPlan));
-  const next = ensureTodosApprovalsShape(ensureSuggestionsShape(generated));
-
-  // Keep rich approvals from existing (objects)
-  next.suggestions.approvedWorker = safeArray(existing.suggestions.approvedWorker);
-  next.suggestions.approvedClient = safeArray(existing.suggestions.approvedClient);
-
-  // Also keep legacy string approvals (if any)
-  next.approvals.approvedWorker = safeArray(existing.approvals.approvedWorker);
-  next.approvals.approvedClient = safeArray(existing.approvals.approvedClient);
-
-  // Merge pending suggestions (existing pending + generated pending), but dedupe
-  const mergedWorker = uniqByKey(
-    [...safeArray(existing.suggestions.worker), ...safeArray(next.suggestions.worker)],
-    (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
-  );
-
-  const mergedClient = uniqByKey(
-    [...safeArray(existing.suggestions.client), ...safeArray(next.suggestions.client)],
-    (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
-  );
-
-  // Do not suggest items that are already approved (rich approvals)
-  const approvedWorkerKeys = new Set(
-    safeArray(next.suggestions.approvedWorker).map(
-      (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
-    )
-  );
-
-  const approvedClientKeys = new Set(
-    safeArray(next.suggestions.approvedClient).map(
-      (x) => x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
-    )
-  );
-
-  next.suggestions.worker = mergedWorker.filter(
-    (x) => !approvedWorkerKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
-  );
-
-  next.suggestions.client = mergedClient.filter(
-    (x) => !approvedClientKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
-  );
-
-  // Finally: derive plan.todos + plan.approvals from suggestions
-  return deriveTodosAndApprovalsFromSuggestions(next);
-}
-
-/* -------------------------------------------------------
-   Findings from docs (existing + improved)
--------------------------------------------------------- */
-
+// -------- Findings --------
 export function buildFindingsFromDocs(docs = []) {
   const combined = normalize(
     safeArray(docs)
@@ -246,36 +92,29 @@ export function buildFindingsFromDocs(docs = []) {
   if (findAny(combined, ["refused", "missed"])) medsFlags.push("Potential missed/refused medication mentioned");
 
   const triggers = extractListByKeywords(combined, [
-    "noise",
-    "change in routine",
-    "new environment",
-    "overstimulation",
-    "sensory",
-    "crowds",
-    "conflict",
+    "noise", "change in routine", "new environment", "overstimulation", "sensory", "crowds", "conflict",
   ]).map((t) => `Trigger mentioned: ${t}`);
+
+  const uniq = (a) => [...new Set(a.filter(Boolean))];
 
   return {
     combinedText: combined,
-    goals: [...new Set(goals)],
-    risks: [...new Set(risks)],
-    preferences: [...new Set(preferences)],
-    medsFlags: [...new Set(medsFlags)],
-    triggers: [...new Set(triggers)],
-    riskLevel: makeRiskLevel([...new Set(risks)]),
+    goals: uniq(goals),
+    risks: uniq(risks),
+    preferences: uniq(preferences),
+    medsFlags: uniq(medsFlags),
+    triggers: uniq(triggers),
+    riskLevel: makeRiskLevel(uniq(risks)),
   };
 }
 
-/* -------------------------------------------------------
-   Suggestions generator (Worker + Client)
--------------------------------------------------------- */
-
+// -------- Suggestions Objects (rich) --------
 function makeTodo({ who, title, detail, frequency, reason, source }) {
   const key = `${who}|${title || ""}|${detail || ""}|${frequency || ""}|${reason || ""}`.trim();
   return {
     id: uid(who),
     key,
-    who, // "worker" | "client"
+    who, // worker | client
     status: "pending",
     title: title || "",
     detail: detail || "",
@@ -286,129 +125,88 @@ function makeTodo({ who, title, detail, frequency, reason, source }) {
   };
 }
 
+function toUiString(todoObj) {
+  const t = todoObj || {};
+  const bits = [
+    t.title,
+    t.detail,
+    t.frequency ? `(${t.frequency})` : "",
+  ].filter(Boolean);
+  return bits.join(" — ");
+}
+
 function generateWorkerTodos(findings) {
   const t = [];
   const risks = safeArray(findings?.risks);
-  const prefs = safeArray(findings?.preferences);
   const triggers = safeArray(findings?.triggers);
   const medsFlags = safeArray(findings?.medsFlags);
+  const prefs = safeArray(findings?.preferences);
 
-  // Always include at least one worker todo (prevents empty arrays)
-  t.push(
-    makeTodo({
-      who: "worker",
-      title: "Follow person-centred, strengths-based support",
-      detail: "Use active support (do-with, not do-for). Offer choices and document what works.",
-      frequency: "Every shift",
-      reason: "NDIS-aligned practice (choice, control, dignity).",
-    })
-  );
+  t.push(makeTodo({
+    who: "worker",
+    title: "Follow person-centred, strengths-based support",
+    detail: "Use active support (do-with, not do-for). Offer choices and document what works.",
+    frequency: "Every shift",
+    reason: "NDIS-aligned practice (choice, control, dignity).",
+  }));
 
   if (risks.some((r) => lower(r).includes("falls"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Falls prevention routine",
-        detail: "Check environment for trip hazards, encourage safe footwear, supervise transfers if needed, document mobility changes.",
-        frequency: "Every shift",
-        reason: "Falls risk mentioned in documentation.",
-      })
-    );
+    t.push(makeTodo({
+      who: "worker",
+      title: "Falls prevention routine",
+      detail: "Check trip hazards, encourage safe footwear, supervise transfers if needed, document mobility changes.",
+      frequency: "Every shift",
+      reason: "Falls risk mentioned in evidence.",
+    }));
   }
 
   if (risks.some((r) => lower(r).includes("distress") || lower(r).includes("anxiety"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Monitor distress / anxiety signs early",
-        detail: "Watch for early cues (restlessness, withdrawal, agitation). Use calming strategies and record triggers and responses.",
-        frequency: "Daily / Each interaction",
-        reason: "Distress/anxiety indicators referenced.",
-      })
-    );
+    t.push(makeTodo({
+      who: "worker",
+      title: "Monitor distress/anxiety signs early",
+      detail: "Watch cues (restlessness, withdrawal). Use calming strategies and record triggers and responses.",
+      frequency: "Daily / each interaction",
+      reason: "Distress/anxiety indicators referenced.",
+    }));
   }
 
-  if (risks.some((r) => lower(r).includes("behaviour"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Use de-escalation and low-arousal approach",
-        detail: "Keep voice calm, reduce stimulation, offer space, avoid power struggles. Escalate if safety risk increases.",
-        frequency: "As needed",
-        reason: "Behaviour escalation risk referenced.",
-      })
-    );
-  }
-
-  if (risks.some((r) => lower(r).includes("abscond") || lower(r).includes("wandering"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Wandering / absconding mitigation",
-        detail: "Confirm supervision plan, check exits, use safe check-ins, document time/places of wandering if observed.",
-        frequency: "Every shift",
-        reason: "Wandering/absconding indicators referenced.",
-      })
-    );
-  }
-
-  if (risks.some((r) => lower(r).includes("self-harm") || lower(r).includes("suicide"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Escalation plan for self-harm risk",
-        detail: "Follow organisational escalation pathway. If imminent risk: call 000. Record observations factually.",
-        frequency: "As needed",
-        reason: "Self-harm/suicide risk indicators referenced.",
-      })
-    );
-  }
-
-  if (triggers.length > 0) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Track triggers and what helps",
-        detail: `Log triggers and effective supports. Current trigger mentions: ${triggers.join(", ")}`,
-        frequency: "Every session",
-        reason: "Triggers were detected from notes/reports.",
-      })
-    );
+  if (triggers.length) {
+    t.push(makeTodo({
+      who: "worker",
+      title: "Track triggers and what helps",
+      detail: `Log triggers and effective supports. Current mentions: ${triggers.join(", ")}`,
+      frequency: "Each session",
+      reason: "Triggers detected from evidence.",
+    }));
   }
 
   if (prefs.some((p) => lower(p).includes("calming"))) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Use calming activities proactively",
-        detail: "Offer preferred calming supports before stress escalates (music, quiet walk, reduced stimulation).",
-        frequency: "Daily",
-        reason: "Client responds well to calming activities.",
-      })
-    );
-  }
-
-  if (medsFlags.length > 0) {
-    t.push(
-      makeTodo({
-        who: "worker",
-        title: "Medication prompting documentation",
-        detail: "If your role includes prompting: document refusals/missed doses and follow-up per policy (no clinical overreach).",
-        frequency: "As applicable",
-        reason: medsFlags.join("; "),
-      })
-    );
-  }
-
-  t.push(
-    makeTodo({
+    t.push(makeTodo({
       who: "worker",
-      title: "Write NDIS-ready progress notes",
-      detail: "Use who/what/when/how/outcome. Link supports delivered to goals and functional outcomes.",
-      frequency: "Every shift",
-      reason: "NDIS expects evidence-based, goal-linked documentation.",
-    })
-  );
+      title: "Use calming activities proactively",
+      detail: "Offer preferred calming supports before escalation (music, quiet walk, reduced stimulation).",
+      frequency: "Daily",
+      reason: "Preferences indicate calming strategies help.",
+    }));
+  }
+
+  if (medsFlags.length) {
+    t.push(makeTodo({
+      who: "worker",
+      title: "Medication prompting documentation",
+      detail: "If role includes prompting: document refusals/missed doses and follow policy (no clinical overreach).",
+      frequency: "As applicable",
+      reason: medsFlags.join("; "),
+    }));
+  }
+
+  t.push(makeTodo({
+    who: "worker",
+    title: "Write NDIS-ready progress notes",
+    detail: "Use who/what/when/how/outcome. Link supports delivered to goals and functional outcomes.",
+    frequency: "Every shift",
+    reason: "Evidence-based documentation supports plan reviews.",
+  }));
 
   return uniqByKey(t, (x) => x.key);
 }
@@ -419,126 +217,81 @@ function generateClientTodos(findings) {
   const goals = safeArray(findings?.goals);
   const prefs = safeArray(findings?.preferences);
 
-  // Always include at least one client todo (prevents empty arrays)
-  t.push(
-    makeTodo({
-      who: "client",
-      title: "Daily wellbeing routine",
-      detail: "Maintain a simple daily routine: sleep, hydration, meals, and light activity (as tolerated).",
-      frequency: "Daily",
-      reason: "Supports stability and functional outcomes.",
-    })
-  );
+  t.push(makeTodo({
+    who: "client",
+    title: "Daily wellbeing routine",
+    detail: "Maintain routine: sleep, hydration, meals, and light activity (as tolerated).",
+    frequency: "Daily",
+    reason: "Supports stability and functional outcomes.",
+  }));
 
   if (goals.some((g) => lower(g).includes("mobility")) || risks.some((r) => lower(r).includes("falls"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Gentle movement / exercise plan",
-        detail: "With clinician/OT guidance: walking, stretching or light exercise. Start small and track how you feel.",
-        frequency: "3–5x per week",
-        reason: "Mobility/falls themes appear in documentation.",
-      })
-    );
+    t.push(makeTodo({
+      who: "client",
+      title: "Gentle movement plan",
+      detail: "With clinician/OT guidance: walking/stretching/light exercise. Start small and track response.",
+      frequency: "3–5x/week",
+      reason: "Mobility/falls themes appear in evidence.",
+    }));
   }
 
   if (risks.some((r) => lower(r).includes("distress") || lower(r).includes("anxiety"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Stress regulation practice",
-        detail: "Try breathing exercises, grounding (5-4-3-2-1), and schedule calming breaks. Share what helps.",
-        frequency: "Daily / As needed",
-        reason: "Distress/anxiety indicators referenced.",
-      })
-    );
-  }
-
-  if (goals.some((g) => lower(g).includes("routine")) || prefs.some((p) => lower(p).includes("routine"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Structured weekly plan",
-        detail: "Use a weekly schedule (wake time, activities, rest, appointments). Keep changes gradual.",
-        frequency: "Weekly review",
-        reason: "Documentation suggests routine/structure supports functioning.",
-      })
-    );
-  }
-
-  if (goals.some((g) => lower(g).includes("productivity") || lower(g).includes("vocational"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Productivity coaching support",
-        detail: "Consider a monthly session with a coach (work readiness / executive functioning / life coach) to build planning skills.",
-        frequency: "Monthly",
-        reason: "Work/productivity participation mentioned.",
-      })
-    );
+    t.push(makeTodo({
+      who: "client",
+      title: "Stress regulation practice",
+      detail: "Breathing, grounding (5-4-3-2-1), scheduled calming breaks. Share what helps.",
+      frequency: "Daily / as needed",
+      reason: "Distress/anxiety indicators referenced.",
+    }));
   }
 
   if (goals.some((g) => lower(g).includes("community") || lower(g).includes("social"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Community participation goal",
-        detail: "Choose one community activity you enjoy (group, class, volunteering) and build up gradually.",
-        frequency: "Weekly",
-        reason: "Community/social participation goal mentioned.",
-      })
-    );
+    t.push(makeTodo({
+      who: "client",
+      title: "Community participation goal",
+      detail: "Choose one enjoyable activity (group/class). Build up gradually and review weekly.",
+      frequency: "Weekly",
+      reason: "Participation goal mentioned.",
+    }));
   }
 
   if (prefs.some((p) => lower(p).includes("calming"))) {
-    t.push(
-      makeTodo({
-        who: "client",
-        title: "Calming activity routine",
-        detail: "Use your preferred calming activities (music, quiet walks) proactively—especially before stressful tasks.",
-        frequency: "Daily",
-        reason: "Preferences suggest calming supports are effective.",
-      })
-    );
+    t.push(makeTodo({
+      who: "client",
+      title: "Calming activity routine",
+      detail: "Use preferred calming activities proactively (music, quiet walks), especially before stressful tasks.",
+      frequency: "Daily",
+      reason: "Preferences indicate calming supports are effective.",
+    }));
   }
 
   return uniqByKey(t, (x) => x.key);
 }
 
-/* -------------------------------------------------------
-   Plan draft generator (used by CarePlanZone)
--------------------------------------------------------- */
-
+// -------- Public Generator (outputs BOTH schemas) --------
 export function generateCarePlanDraft({ client, findings, recentSessions = [], existingPlan = null }) {
-  const existing = ensureTodosApprovalsShape(ensureSuggestionsShape(existingPlan || {}));
   const clientName = client?.name || "Client";
 
   const shortGoals = safeArray(findings?.goals).slice(0, 3);
   const longGoals = safeArray(findings?.goals).slice(3);
-
   const risks = safeArray(findings?.risks);
   const prefs = safeArray(findings?.preferences);
   const triggers = safeArray(findings?.triggers);
 
   const goalsShortText =
-    joinBullets(shortGoals) ||
-    existing.goalsShort ||
-    "- Confirm client’s short-term goals (NDIS aligned)\n- Maintain stability and daily routines";
+    joinBullets(shortGoals) || "- Confirm client short-term goals\n- Maintain stable routines and wellbeing";
 
   const goalsLongText =
-    joinBullets(longGoals) ||
-    existing.goalsLong ||
-    "- Improve independence and community participation over time\n- Maintain emotional regulation and wellbeing";
+    joinBullets(longGoals) || "- Build independence and participation over time\n- Improve confidence and self-management";
 
   const risksText =
     joinBullets([
       ...(risks.length ? risks : ["Identify and document risks (falls, behaviours, medication, etc.)"]),
       ...(triggers.length ? [`Triggers to monitor: ${triggers.join(", ")}`] : []),
       `Overall risk level (auto): ${findings?.riskLevel || "Unknown"}`,
-    ]) || existing.risks;
+    ]);
 
   const communicationText =
-    existing.communication ||
     joinBullets([
       "Use clear, respectful language and allow time for responses.",
       ...(prefs.length ? [`Preferences: ${prefs.join("; ")}`] : []),
@@ -546,61 +299,77 @@ export function generateCarePlanDraft({ client, findings, recentSessions = [], e
     ]);
 
   const supportsText =
-    existing.supports ||
     joinBullets([
-      "Provide person-centred, strengths-based support aligned to NDIS goals.",
-      "Support routines, wellbeing, and safe participation in the community.",
-      "Document supports delivered and outcomes (functional progress).",
-      recentSessions?.length
-        ? `Recent sessions recorded: ${recentSessions.length}. Review for trends and update plan accordingly.`
-        : "Begin consistent session logging to strengthen evidence and outcome tracking.",
+      "Provide person-centred, strengths-based support aligned to goals.",
+      "Support routines, wellbeing and safe participation.",
+      `Recent sessions used for trends: ${recentSessions?.length || 0}`,
     ]);
 
   const legalEthicalText =
-    existing.legalEthical ||
     joinBullets([
       "Maintain duty of care at all times.",
       "Respect dignity of risk and supported choice.",
-      "Maintain privacy and confidentiality (NDIS practice standards).",
+      "Maintain privacy and confidentiality.",
       "Escalate safety concerns according to organisational policy; call 000 in emergencies.",
     ]);
 
-  // Generate pending suggestions from findings (these should never be empty now)
-  const newWorker = generateWorkerTodos(findings);
-  const newClient = generateClientTodos(findings);
+  const workerObjs = generateWorkerTodos(findings);
+  const clientObjs = generateClientTodos(findings);
 
-  // Create draft plan
-  const draft = ensureTodosApprovalsShape(
-    ensureSuggestionsShape({
-      title: `Care Plan Draft — ${clientName}`,
-      generatedAt: new Date().toISOString(),
-      clientId: client?.id || "",
+  // Convert to your UI strings so To-Dos ALWAYS show
+  const workerStrings = workerObjs.map(toUiString).filter(Boolean);
+  const clientStrings = clientObjs.map(toUiString).filter(Boolean);
 
-      // Editable UI fields
+  // Preserve approvals if they already exist in existingPlan (supports both schemas)
+  const prevApprovedWorker =
+    safeArray(existingPlan?.approvals?.approvedWorker) ||
+    safeArray(existingPlan?.suggestions?.approvedWorker).map(toUiString);
+
+  const prevApprovedClient =
+    safeArray(existingPlan?.approvals?.approvedClient) ||
+    safeArray(existingPlan?.suggestions?.approvedClient).map(toUiString);
+
+  return {
+    title: `Care Plan Draft — ${clientName}`,
+    generatedAt: new Date().toISOString(),
+    clientId: client?.id || "",
+
+    // legacy fields
+    goalsShort: goalsShortText,
+    goalsLong: goalsLongText,
+    risks: risksText,
+    communication: communicationText,
+    supports: supportsText,
+    legalEthical: legalEthicalText,
+
+    // structured sections (preferred)
+    sections: {
+      participantDetails: "",
       goalsShort: goalsShortText,
       goalsLong: goalsLongText,
+      strengths: "",
+      functionalNeeds: supportsText,
+      healthClinical: "",
       risks: risksText,
+      riskControls: [],
+      behaviourSupport: "",
+      routinesAndPreferences: "",
       communication: communicationText,
-      supports: supportsText,
+      safeguardsConsent: "",
+      monitoringReview: "",
       legalEthical: legalEthicalText,
+    },
 
-      // Suggestions payload (rich objects)
-      suggestionsGeneratedAt: new Date().toISOString(),
-      suggestions: {
-        worker: newWorker,
-        client: newClient,
-        approvedWorker: [], // preserved by merge
-        approvedClient: [], // preserved by merge
-      },
+    // ✅ UI schema
+    todos: { worker: workerStrings, client: clientStrings },
+    approvals: { approvedWorker: prevApprovedWorker, approvedClient: prevApprovedClient },
 
-      // Back-compat arrays (filled after merge)
-      todos: { worker: [], client: [] },
-      approvals: { approvedWorker: [], approvedClient: [] },
-    })
-  );
-
-  // Merge, preserving approvals + avoiding duplicates + derive todos/approvals
-  const merged = mergeSuggestionsPreservingApprovals(existing, draft);
-
-  return merged;
+    // ✅ rich schema retained
+    suggestions: {
+      worker: workerObjs,
+      client: clientObjs,
+      approvedWorker: [], // store objects later if you choose
+      approvedClient: [],
+    },
+  };
 }
