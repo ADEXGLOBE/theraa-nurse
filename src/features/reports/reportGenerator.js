@@ -1,8 +1,16 @@
 // src/features/reports/reportGenerator.js
-// Monthly NDIS-style report (scope-safe, outcomes focused).
-// Inputs: client, sessions, incidents, carePlanVersion, adlSummary.
 
-const safe = (v) => (v == null ? "" : String(v));
+import {
+  toSessionsByZoneChartData,
+  toMoodChartData,
+  toRiskChartData,
+  toPurposeDomainChartData,
+  toTopTodoChartData,
+} from "./chartTransformers";
+
+function safe(v) {
+  return v == null ? "" : String(v);
+}
 
 function monthKey(date = new Date()) {
   const d = new Date(date);
@@ -14,85 +22,150 @@ function inMonth(dateIso, key) {
   return monthKey(d) === key;
 }
 
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
 export function generateMonthlyNdisReport({
   client,
   month = monthKey(new Date()),
   sessions = [],
-  incidents = [],
   carePlanVersion,
-  adlSummary,
+  documentCount = 0,
 }) {
-  const monthSessions = sessions.filter((s) => inMonth(s.createdAt || s.date || new Date().toISOString(), month));
-  const monthIncidents = incidents.filter((i) => inMonth(i.createdAt || new Date().toISOString(), month));
+  const monthSessions = safeArray(sessions).filter((s) =>
+    inMonth(s.timestamp || s.createdAt || new Date().toISOString(), month)
+  );
 
   const plan = carePlanVersion?.plan || {};
-  const sections = plan.sections || {};
+  const sections = plan?.sections || {};
+  const runningSource = plan?.runningSource || {};
+  const purposeCards = safeArray(runningSource?.purposeCards);
 
-  // Outcome framing: what supports were delivered + what changed
-  const supportDeliverySummary = monthSessions.length
-    ? `Supports delivered across ${monthSessions.length} session(s). Sessions recorded with outcomes and observations.`
-    : "No sessions recorded for the month yet (add session notes to strengthen evidence).";
+  const approvedWorker = safeArray(plan?.approvals?.approvedWorker);
+  const approvedClient = safeArray(plan?.approvals?.approvedClient);
 
-  const riskSummary = monthIncidents.length
-    ? `There were ${monthIncidents.length} incident(s)/concern(s) documented this month. Follow-up actions recorded.`
-    : "No incidents documented this month.";
-
-  const goals = {
-    shortTerm: safe(sections.goalsShort || plan.goalsShort),
-    longTerm: safe(sections.goalsLong || plan.goalsLong),
+  const chartData = {
+    sessionsByZone: toSessionsByZoneChartData(monthSessions),
+    moodDistribution: toMoodChartData(monthSessions),
+    riskProfile: toRiskChartData(plan),
+    purposeDomains: toPurposeDomainChartData(purposeCards),
+    todoApprovals: toTopTodoChartData(plan),
   };
 
   return {
-    id: `rpt-${month}-${client?.id || "client"}`,
+    id: `monthly-${client?.id || "client"}-${month}`,
     generatedAt: new Date().toISOString(),
     reportPeriod: month,
-
     participant: {
       id: safe(client?.id),
       name: safe(client?.name),
       age: safe(client?.age),
     },
-
-    planReference: {
+    carePlan: {
       versionId: safe(carePlanVersion?.id),
       status: safe(carePlanVersion?.status),
-      createdAt: safe(carePlanVersion?.createdAt),
+      generatedAt: safe(plan?.generatedAt || carePlanVersion?.createdAt),
     },
-
-    goals,
-
-    functionalStatus: {
-      adlLevel: safe(adlSummary?.level),
-      totalScore: adlSummary?.totalScore ?? null,
-      maxScore: adlSummary?.maxScore ?? null,
-      notes: "Lower score indicates higher independence. Track change over time.",
+    summary: {
+      totalSessions: monthSessions.length,
+      documentCount,
+      approvedWorkerTodos: approvedWorker.length,
+      approvedClientTodos: approvedClient.length,
+      purposePlansGenerated: purposeCards.length,
     },
-
-    supportsDelivered: supportDeliverySummary,
-
-    progressNotesHighlights: monthSessions.slice(0, 6).map((s) => ({
-      date: safe(s.createdAt || s.date),
-      summary: safe(s.title || s.summary || "Session recorded"),
-      outcome: safe(s.outcome || s.body || s.note || ""),
-    })),
-
-    incidentsAndSafeguarding: {
-      summary: riskSummary,
-      incidents: monthIncidents.map((i) => ({
-        date: safe(i.createdAt),
-        type: safe(i?.incident?.type || i.type),
-        summary: safe(i?.incident?.summary || i.summary),
-        escalation: safe(i?.incident?.escalation || i.escalation),
-      })),
+    goals: {
+      shortTerm: safe(sections?.goalsShort || plan?.goalsShort),
+      longTerm: safe(sections?.goalsLong || plan?.goalsLong),
     },
-
-    recommendationsNextMonth: [
-      "Continue consistent session logging with goal-linked outcomes.",
-      "Review and update risk controls if triggers or incidents increase.",
-      "Confirm participant consent and preferences for any plan changes.",
-    ],
-
-    complianceNote:
-      "This report is generated to assist documentation and does not replace provider policy, clinical judgement, or audit requirements. Ensure consent and privacy requirements are met before sharing.",
+    supportsAndOutcomes: {
+      functionalNeeds: safe(sections?.functionalNeeds || plan?.supports),
+      communication: safe(sections?.communication || plan?.communication),
+      monitoringReview: safe(sections?.monitoringReview),
+    },
+    risksAndSafeguards: {
+      risks: safe(sections?.risks || plan?.risks),
+      riskControls: safeArray(sections?.riskControls),
+      behaviourSupport: safe(sections?.behaviourSupport),
+      legalEthical: safe(sections?.legalEthical || plan?.legalEthical),
+    },
+    purposeEnhancement: {
+      summary: safe(runningSource?.summary),
+      purposeCards,
+    },
+    chartData,
   };
+}
+
+export function exportMonthlySummaryText(report) {
+  const lines = [];
+
+  lines.push("THERAA NURSE – MONTHLY SUMMARY");
+  lines.push("");
+  lines.push(`Participant: ${safe(report?.participant?.name)}`);
+  lines.push(`Age: ${safe(report?.participant?.age)}`);
+  lines.push(`Period: ${safe(report?.reportPeriod)}`);
+  lines.push(`Generated: ${safe(report?.generatedAt)}`);
+  lines.push("");
+
+  lines.push("SUMMARY");
+  lines.push(`- Sessions this month: ${safe(report?.summary?.totalSessions)}`);
+  lines.push(`- Documents analysed: ${safe(report?.summary?.documentCount)}`);
+  lines.push(`- Approved worker to-dos: ${safe(report?.summary?.approvedWorkerTodos)}`);
+  lines.push(`- Approved client to-dos: ${safe(report?.summary?.approvedClientTodos)}`);
+  lines.push(`- Purpose plans generated: ${safe(report?.summary?.purposePlansGenerated)}`);
+  lines.push("");
+
+  lines.push("SHORT-TERM GOALS");
+  lines.push(safe(report?.goals?.shortTerm) || "—");
+  lines.push("");
+
+  lines.push("LONG-TERM GOALS");
+  lines.push(safe(report?.goals?.longTerm) || "—");
+  lines.push("");
+
+  lines.push("FUNCTIONAL SUPPORT NEEDS");
+  lines.push(safe(report?.supportsAndOutcomes?.functionalNeeds) || "—");
+  lines.push("");
+
+  lines.push("COMMUNICATION");
+  lines.push(safe(report?.supportsAndOutcomes?.communication) || "—");
+  lines.push("");
+
+  lines.push("RISKS");
+  lines.push(safe(report?.risksAndSafeguards?.risks) || "—");
+  lines.push("");
+
+  lines.push("MONITORING & REVIEW");
+  lines.push(safe(report?.supportsAndOutcomes?.monitoringReview) || "—");
+  lines.push("");
+
+  lines.push("PURPOSE ENHANCEMENT");
+  lines.push(safe(report?.purposeEnhancement?.summary) || "—");
+
+  safeArray(report?.purposeEnhancement?.purposeCards).forEach((card, idx) => {
+    lines.push("");
+    lines.push(`${idx + 1}. ${safe(card?.title)}`);
+    lines.push(`   Domain: ${safe(card?.domain)}`);
+    lines.push(`   Why it matters: ${safe(card?.whyItMatters)}`);
+    lines.push(`   Participant action: ${safe(card?.participantAction)}`);
+    lines.push(`   Worker action: ${safe(card?.workerAction)}`);
+    lines.push(`   Frequency: ${safe(card?.frequency)}`);
+  });
+
+  return lines.join("\n");
+}
+
+export function downloadMonthlySummary(report) {
+  const text = exportMonthlySummaryText(report);
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `TheraaNurse-MonthlySummary-${report?.participant?.name || "Client"}-${report?.reportPeriod || "month"}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

@@ -1,29 +1,33 @@
-// src/pages/CarePlanZone.jsx
 import { useEffect, useMemo, useState } from "react";
 import { loadClients } from "../data/clientsStore";
-import { loadCarePlanVersions, saveCarePlanVersion } from "../data/carePlanStore";
+import {
+  loadCarePlanVersions,
+  saveCarePlanVersion,
+} from "../data/carePlanStore";
 import { generateCarePlanPdf } from "../features/careplans/carePlanPdf";
 
-import { listDocumentsForClient } from "../features/documents/documentService";
-import { buildFindingsFromDocs, generateCarePlanDraft } from "../features/careplans/carePlanGenerator";
+import {
+  listDocumentsForClient,
+  buildClientDocumentIntelligence,
+} from "../features/documents/documentService";
+import {
+  buildFindingsFromDocs,
+  generateCarePlanDraft,
+} from "../features/careplans/carePlanGenerator";
 import { loadSessions } from "../data/sessionStore";
 
 /**
- * CarePlanZone (Sectioned UI)
+ * CarePlanZone
  * - Multi-client
  * - Version history + select past versions
  * - NDIS-aligned sections
  * - To-Do suggestions: Worker vs Client
  * - Approval workflow
- * - PDF export uses selected / latest saved version
- *
- * FIX (important):
- * - Supports both plan.todos/plan.approvals (string arrays) AND plan.suggestions (rich objects)
- * - Ensures todos are always populated (hydrates from suggestions if needed)
+ * - Running Source integration
+ * - PDF export
  */
 
 const EMPTY_PLAN = () => ({
-  // Legacy flat fields (backward compatible)
   goalsShort: "",
   goalsLong: "",
   risks: "",
@@ -31,7 +35,6 @@ const EMPTY_PLAN = () => ({
   supports: "",
   legalEthical: "",
 
-  // Structured sections (preferred)
   sections: {
     participantDetails: "",
     goalsShort: "",
@@ -49,16 +52,21 @@ const EMPTY_PLAN = () => ({
     legalEthical: "",
   },
 
-  // Back-compat suggestions + approvals (strings)
-  todos: { worker: [], client: [] }, // pending suggestions
-  approvals: { approvedWorker: [], approvedClient: [] }, // approved only
+  todos: { worker: [], client: [] },
+  approvals: { approvedWorker: [], approvedClient: [] },
 
-  // Rich suggestion objects (optional/modern)
   suggestions: {
     worker: [],
     client: [],
     approvedWorker: [],
     approvedClient: [],
+  },
+
+  runningSource: {
+    generatedAt: "",
+    summary: "",
+    themes: {},
+    purposeCards: [],
   },
 
   generatedAt: "",
@@ -87,7 +95,6 @@ function safe(v) {
 }
 
 function formatTodoString(todoObj) {
-  // Used when we need to derive plan.todos.* from plan.suggestions.*
   if (!todoObj) return "";
   const title = safe(todoObj.title).trim();
   const detail = safe(todoObj.detail).trim();
@@ -106,8 +113,12 @@ function hydrateTodosAndApprovalsFromSuggestions(planLike) {
   const pendingWorker = uniq(asArray(suggestions.worker).map(formatTodoString));
   const pendingClient = uniq(asArray(suggestions.client).map(formatTodoString));
 
-  const approvedWorkerFromRich = uniq(asArray(suggestions.approvedWorker).map(formatTodoString));
-  const approvedClientFromRich = uniq(asArray(suggestions.approvedClient).map(formatTodoString));
+  const approvedWorkerFromRich = uniq(
+    asArray(suggestions.approvedWorker).map(formatTodoString)
+  );
+  const approvedClientFromRich = uniq(
+    asArray(suggestions.approvedClient).map(formatTodoString)
+  );
 
   const approvals = p.approvals || {};
   const approvedWorkerLegacy = uniq(asArray(approvals.approvedWorker));
@@ -120,8 +131,14 @@ function hydrateTodosAndApprovalsFromSuggestions(planLike) {
       client: pendingClient,
     },
     approvals: {
-      approvedWorker: uniq([...approvedWorkerFromRich, ...approvedWorkerLegacy]),
-      approvedClient: uniq([...approvedClientFromRich, ...approvedClientLegacy]),
+      approvedWorker: uniq([
+        ...approvedWorkerFromRich,
+        ...approvedWorkerLegacy,
+      ]),
+      approvedClient: uniq([
+        ...approvedClientFromRich,
+        ...approvedClientLegacy,
+      ]),
     },
   };
 }
@@ -130,7 +147,6 @@ function normalizePlan(planLike) {
   const p = planLike && typeof planLike === "object" ? planLike : {};
   const base = EMPTY_PLAN();
 
-  // Merge first
   let merged = {
     ...base,
     ...p,
@@ -152,9 +168,12 @@ function normalizePlan(planLike) {
       approvedWorker: asArray(p?.suggestions?.approvedWorker),
       approvedClient: asArray(p?.suggestions?.approvedClient),
     },
+    runningSource: {
+      ...base.runningSource,
+      ...(p.runningSource || {}),
+    },
   };
 
-  // If todos are empty but suggestions exist, derive todos from suggestions (critical fix)
   const hasRichPending =
     merged.suggestions.worker.length > 0 || merged.suggestions.client.length > 0;
   const hasEmptyTodos =
@@ -164,21 +183,27 @@ function normalizePlan(planLike) {
     merged = hydrateTodosAndApprovalsFromSuggestions(merged);
   }
 
-  // Keep legacy fields in sync
   merged.goalsShort = merged.goalsShort || merged.sections.goalsShort || "";
   merged.goalsLong = merged.goalsLong || merged.sections.goalsLong || "";
   merged.risks = merged.risks || merged.sections.risks || "";
-  merged.communication = merged.communication || merged.sections.communication || "";
-  merged.supports = merged.supports || merged.sections.functionalNeeds || merged.supports || "";
-  merged.legalEthical = merged.legalEthical || merged.sections.legalEthical || "";
+  merged.communication =
+    merged.communication || merged.sections.communication || "";
+  merged.supports =
+    merged.supports || merged.sections.functionalNeeds || merged.supports || "";
+  merged.legalEthical =
+    merged.legalEthical || merged.sections.legalEthical || "";
 
-  // Sync structured sections from legacy when missing
-  merged.sections.goalsShort = merged.sections.goalsShort || merged.goalsShort || "";
-  merged.sections.goalsLong = merged.sections.goalsLong || merged.goalsLong || "";
+  merged.sections.goalsShort =
+    merged.sections.goalsShort || merged.goalsShort || "";
+  merged.sections.goalsLong =
+    merged.sections.goalsLong || merged.goalsLong || "";
   merged.sections.risks = merged.sections.risks || merged.risks || "";
-  merged.sections.communication = merged.sections.communication || merged.communication || "";
-  merged.sections.functionalNeeds = merged.sections.functionalNeeds || merged.supports || "";
-  merged.sections.legalEthical = merged.sections.legalEthical || merged.legalEthical || "";
+  merged.sections.communication =
+    merged.sections.communication || merged.communication || "";
+  merged.sections.functionalNeeds =
+    merged.sections.functionalNeeds || merged.supports || "";
+  merged.sections.legalEthical =
+    merged.sections.legalEthical || merged.legalEthical || "";
 
   return merged;
 }
@@ -186,7 +211,14 @@ function normalizePlan(planLike) {
 function Card({ title, subtitle, children, right }) {
   return (
     <div className="card">
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
         <div>
           <div className="card-title">{title}</div>
           {subtitle ? <div className="card-subtitle">{subtitle}</div> : null}
@@ -234,7 +266,6 @@ export default function CarePlanZone() {
     return versions.find((v) => v.id === selectedVersionId) || versions?.[0] || null;
   }, [versions, selectedVersionId]);
 
-  // Load versions when client changes
   useEffect(() => {
     if (!selectedClientId) return;
     const v = loadCarePlanVersions(selectedClientId) || [];
@@ -247,7 +278,6 @@ export default function CarePlanZone() {
     setSelectedVersionId(v[0]?.id || "");
   }, [selectedClientId]);
 
-  // If selecting a different version, load it
   useEffect(() => {
     if (!selectedVersion) return;
     const p = normalizePlan(selectedVersion.plan || EMPTY_PLAN());
@@ -274,7 +304,6 @@ export default function CarePlanZone() {
         sections: { ...(p.sections || {}), [key]: value },
       });
 
-      // keep legacy fields synced for core keys
       if (key === "goalsShort") next.goalsShort = value;
       if (key === "goalsLong") next.goalsLong = value;
       if (key === "risks") next.risks = value;
@@ -288,32 +317,37 @@ export default function CarePlanZone() {
 
   const updateListSection = (key, list) => {
     setActivePlan((p) =>
-      normalizePlan({ ...p, sections: { ...(p.sections || {}), [key]: asArray(list) } })
+      normalizePlan({
+        ...p,
+        sections: { ...(p.sections || {}), [key]: asArray(list) },
+      })
     );
   };
 
   async function buildDraftFromEvidence() {
     setIsBuilding(true);
     setLastBuildInfo("");
+
     try {
       const docs = await listDocumentsForClient(client.id);
+      const documentIntelligence = await buildClientDocumentIntelligence(client.id);
+
       const sessionsMap = loadSessions();
       const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
 
       const findings = buildFindingsFromDocs(docs || []);
 
-      // IMPORTANT: pass existing plan so approvals/suggestions can be preserved/merged by generator
       const draft = generateCarePlanDraft({
         client,
         findings,
         recentSessions,
         existingPlan: activePlan,
+        documentIntelligence,
       });
 
       setActivePlan((prev) => {
         const prevN = normalizePlan(prev);
 
-        // Start from previous, then merge draft over it
         let next = normalizePlan({
           ...prevN,
           ...draft,
@@ -322,12 +356,10 @@ export default function CarePlanZone() {
         next.generatedAt = new Date().toISOString();
         next.clientId = client.id;
 
-        // Map generator output into sections safely
         if (draft?.sections && typeof draft.sections === "object") {
           next.sections = { ...next.sections, ...draft.sections };
         }
 
-        // If generator returns legacy strings
         if (draft?.goalsShort) next.sections.goalsShort = draft.goalsShort;
         if (draft?.goalsLong) next.sections.goalsLong = draft.goalsLong;
         if (draft?.risks) next.sections.risks = draft.risks;
@@ -339,7 +371,11 @@ export default function CarePlanZone() {
         }
         if (draft?.legalEthical) next.sections.legalEthical = draft.legalEthical;
 
-        // Preserve approvals (never clobber)
+        next.runningSource = {
+          ...(prevN?.runningSource || {}),
+          ...(draft?.runningSource || {}),
+        };
+
         next.approvals = {
           approvedWorker: uniq([
             ...(prevN?.approvals?.approvedWorker || []),
@@ -351,23 +387,23 @@ export default function CarePlanZone() {
           ]),
         };
 
-        // Populate todos from draft.todos if present, otherwise derive from draft.suggestions,
-        // and if STILL empty, keep prev todos as fallback.
         const draftTodosWorker = uniq(asArray(draft?.todos?.worker));
         const draftTodosClient = uniq(asArray(draft?.todos?.client));
 
         next.suggestions = {
           worker: asArray(draft?.suggestions?.worker || next?.suggestions?.worker),
           client: asArray(draft?.suggestions?.client || next?.suggestions?.client),
-          approvedWorker: asArray(draft?.suggestions?.approvedWorker || next?.suggestions?.approvedWorker),
-          approvedClient: asArray(draft?.suggestions?.approvedClient || next?.suggestions?.approvedClient),
+          approvedWorker: asArray(
+            draft?.suggestions?.approvedWorker || next?.suggestions?.approvedWorker
+          ),
+          approvedClient: asArray(
+            draft?.suggestions?.approvedClient || next?.suggestions?.approvedClient
+          ),
         };
 
-        // If generator produced suggested* arrays (older)
         const suggestedWorkerStrings = uniq(asArray(draft?.suggestedWorkerTodos));
         const suggestedClientStrings = uniq(asArray(draft?.suggestedClientTodos));
 
-        // Combine sources for pending todos
         let nextTodosWorker = uniq([
           ...draftTodosWorker,
           ...suggestedWorkerStrings,
@@ -378,7 +414,6 @@ export default function CarePlanZone() {
           ...suggestedClientStrings,
         ]);
 
-        // If still empty, derive from rich suggestions
         if (nextTodosWorker.length === 0 && next.suggestions.worker.length > 0) {
           nextTodosWorker = uniq(next.suggestions.worker.map(formatTodoString));
         }
@@ -386,11 +421,9 @@ export default function CarePlanZone() {
           nextTodosClient = uniq(next.suggestions.client.map(formatTodoString));
         }
 
-        // If still empty (shouldn’t happen), fallback to previous pending todos
         if (nextTodosWorker.length === 0) nextTodosWorker = uniq(prevN?.todos?.worker);
         if (nextTodosClient.length === 0) nextTodosClient = uniq(prevN?.todos?.client);
 
-        // Remove anything that is already approved (so pending list stays clean)
         const approvedW = new Set(next.approvals.approvedWorker);
         const approvedC = new Set(next.approvals.approvedClient);
 
@@ -399,7 +432,6 @@ export default function CarePlanZone() {
           client: uniq(nextTodosClient.filter((t) => !approvedC.has(String(t).trim()))),
         };
 
-        // Keep legacy sync
         next.goalsShort = next.sections.goalsShort || "";
         next.goalsLong = next.sections.goalsLong || "";
         next.risks = next.sections.risks || "";
@@ -407,15 +439,16 @@ export default function CarePlanZone() {
         next.supports = next.sections.functionalNeeds || "";
         next.legalEthical = next.sections.legalEthical || next.legalEthical || "";
 
-        // Final normalize (ensures derived todos from suggestions if needed)
         next = normalizePlan(next);
-
         return next;
       });
 
-      const info = `Built from ${docs?.length || 0} document(s) + ${recentSessions.length} recent session(s).`;
+      const info = `Built from ${docs?.length || 0} document(s), ${documentIntelligence?.documentCount || 0} analysed source(s), and ${recentSessions.length} recent session(s).`;
       setLastBuildInfo(info);
-      alert("Draft refreshed from evidence (documents + sessions). Review and approve To-Dos before marking reviewed.");
+
+      alert(
+        "Draft refreshed from evidence. Running Source purpose recommendations have been merged into the care plan."
+      );
     } catch (e) {
       console.error(e);
       alert("Failed to build draft from evidence. Check console for details.");
@@ -458,7 +491,9 @@ export default function CarePlanZone() {
 
       if (type === "worker") {
         const approvedWorker = uniq([...(p.approvals?.approvedWorker || []), t]);
-        const remainingWorker = uniq((p.todos?.worker || []).filter((x) => String(x).trim() !== t));
+        const remainingWorker = uniq(
+          (p.todos?.worker || []).filter((x) => String(x).trim() !== t)
+        );
         return normalizePlan({
           ...p,
           todos: { ...(p.todos || {}), worker: remainingWorker },
@@ -467,7 +502,9 @@ export default function CarePlanZone() {
       }
 
       const approvedClient = uniq([...(p.approvals?.approvedClient || []), t]);
-      const remainingClient = uniq((p.todos?.client || []).filter((x) => String(x).trim() !== t));
+      const remainingClient = uniq(
+        (p.todos?.client || []).filter((x) => String(x).trim() !== t)
+      );
       return normalizePlan({
         ...p,
         todos: { ...(p.todos || {}), client: remainingClient },
@@ -484,14 +521,18 @@ export default function CarePlanZone() {
       const p = normalizePlan(prev);
 
       if (type === "worker") {
-        const approvedWorker = uniq((p.approvals?.approvedWorker || []).filter((x) => String(x).trim() !== t));
+        const approvedWorker = uniq(
+          (p.approvals?.approvedWorker || []).filter((x) => String(x).trim() !== t)
+        );
         return normalizePlan({
           ...p,
           approvals: { ...(p.approvals || {}), approvedWorker },
         });
       }
 
-      const approvedClient = uniq((p.approvals?.approvedClient || []).filter((x) => String(x).trim() !== t));
+      const approvedClient = uniq(
+        (p.approvals?.approvedClient || []).filter((x) => String(x).trim() !== t)
+      );
       return normalizePlan({
         ...p,
         approvals: { ...(p.approvals || {}), approvedClient },
@@ -504,13 +545,14 @@ export default function CarePlanZone() {
   const suggestedClient = uniq(activePlan?.todos?.client);
   const approvedWorker = uniq(activePlan?.approvals?.approvedWorker);
   const approvedClient = uniq(activePlan?.approvals?.approvedClient);
+  const purposeCards = asArray(activePlan?.runningSource?.purposeCards);
 
   return (
     <div className="zone-page">
       <div className="zone-header">
         <h2>Care Plan</h2>
         <div style={{ fontSize: 12, color: "#6b7280" }}>
-          Sectioned · Versioned · Suggestions + Approvals · PDF Export
+          Sectioned · Versioned · Running Source · Suggestions + Approvals · PDF Export
         </div>
       </div>
 
@@ -518,14 +560,29 @@ export default function CarePlanZone() {
         title="Client & Versions"
         subtitle="Pick a client, then view/edit the latest care plan version — or open older versions."
         right={
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+            }}
+          >
             <button className="btn-primary" onClick={() => saveVersion("draft")}>
               💾 Save Draft
             </button>
-            <button className="btn-primary" style={{ background: "#0f766e" }} onClick={() => saveVersion("reviewed")}>
+            <button
+              className="btn-primary"
+              style={{ background: "#0f766e" }}
+              onClick={() => saveVersion("reviewed")}
+            >
               ✅ Save Reviewed
             </button>
-            <button className="btn-primary" style={{ background: "#334155" }} onClick={downloadPdf}>
+            <button
+              className="btn-primary"
+              style={{ background: "#334155" }}
+              onClick={downloadPdf}
+            >
               📄 Download PDF
             </button>
           </div>
@@ -535,7 +592,11 @@ export default function CarePlanZone() {
           <div className="stack">
             <label className="section-title-sm">
               Client
-              <select className="input" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+              <select
+                className="input"
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+              >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.age})
@@ -543,11 +604,6 @@ export default function CarePlanZone() {
                 ))}
               </select>
             </label>
-
-            <div style={{ fontSize: 12, color: "#6b7280" }}>
-              Tip: If you don’t see a client elsewhere (Therapy/Medication/Staff), it means those zones still point to
-              mockClients — we’ll wire them to the real client store next.
-            </div>
           </div>
 
           <div className="stack">
@@ -568,27 +624,69 @@ export default function CarePlanZone() {
             </label>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn-primary" onClick={buildDraftFromEvidence} disabled={isBuilding}>
+              <button
+                className="btn-primary"
+                onClick={buildDraftFromEvidence}
+                disabled={isBuilding}
+              >
                 {isBuilding ? "⏳ Building…" : "🧠 Refresh Draft from Docs + Notes"}
               </button>
               {lastBuildInfo ? (
-                <div style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>{lastBuildInfo}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
+                  {lastBuildInfo}
+                </div>
               ) : null}
             </div>
           </div>
         </div>
       </Card>
 
-      {/* SECTIONED EDITOR */}
+      {purposeCards.length > 0 ? (
+        <Card
+          title="Running Source – Purpose Plans"
+          subtitle="These are the purpose-based lifestyle recommendations generated from care plans, notes, and other health-related documents."
+        >
+          <div style={{ display: "grid", gap: 8 }}>
+            {purposeCards.map((card) => (
+              <div
+                key={card.id}
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 12,
+                  padding: 12,
+                  background: "#fafafc",
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>{card.title}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                  Domain: {card.domain} · Frequency: {card.frequency}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  <strong>Why it matters:</strong> {card.whyItMatters}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13 }}>
+                  <strong>Participant action:</strong> {card.participantAction}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13 }}>
+                  <strong>Worker action:</strong> {card.workerAction}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       <div className="two-column" style={{ marginTop: 12 }}>
         <div className="stack">
-          <Card title="1) Participant Details & Plan Information" subtitle="Keep this functional + scope-safe. Avoid unsupported medical claims.">
+          <Card
+            title="1) Participant Details & Plan Information"
+            subtitle="Keep this functional + scope-safe. Avoid unsupported medical claims."
+          >
             <SectionTextarea
-              label="Participant details (name, contacts, emergency contact, supports, identifiers)"
+              label="Participant details"
               value={sections.participantDetails}
               onChange={(v) => updateSection("participantDetails", v)}
               rows={5}
-              placeholder="Example: Client lives with..., main contact..., emergency contact..., preferred providers..., NDIS plan dates..."
             />
           </Card>
 
@@ -598,63 +696,56 @@ export default function CarePlanZone() {
               value={sections.goalsShort}
               onChange={(v) => updateSection("goalsShort", v)}
               rows={4}
-              placeholder="Example: Increase independence with meal prep 2x/week..."
             />
             <SectionTextarea
               label="Long-term goals"
               value={sections.goalsLong}
               onChange={(v) => updateSection("goalsLong", v)}
               rows={4}
-              placeholder="Example: Improve community participation and emotional regulation..."
             />
           </Card>
 
-          <Card title="3) Strengths, Interests & Abilities" subtitle="NDIS is strengths-based — auditors love this.">
+          <Card title="3) Strengths, Interests & Abilities" subtitle="Strength-based planning.">
             <SectionTextarea
               label="Strengths & interests"
               value={sections.strengths}
               onChange={(v) => updateSection("strengths", v)}
               rows={4}
-              placeholder="Example: Motivated by music, likes walking, responds well to calm routines..."
             />
             <SectionTextarea
               label="Daily routines & preferences"
               value={sections.routinesAndPreferences}
               onChange={(v) => updateSection("routinesAndPreferences", v)}
               rows={4}
-              placeholder="Example: Morning routine, sensory preferences, cultural or spiritual preferences..."
             />
           </Card>
 
-          <Card title="4) Functional Support Needs" subtitle="Break down supports by domains; specify frequency + level of support.">
+          <Card title="4) Functional Support Needs" subtitle="Supports, frequency, level of assistance.">
             <SectionTextarea
               label="Functional needs & supports"
               value={sections.functionalNeeds}
               onChange={(v) => updateSection("functionalNeeds", v)}
               rows={7}
-              placeholder="Example: Personal care (prompting), community access (2x/week), communication supports..."
             />
           </Card>
         </div>
 
         <div className="stack">
-          <Card title="5) Health & Clinical Considerations" subtitle="Only include what is evidenced in documents/professional reports.">
+          <Card title="5) Health & Clinical Considerations" subtitle="Only include evidenced information.">
             <SectionTextarea
               label="Health & clinical considerations"
               value={sections.healthClinical}
               onChange={(v) => updateSection("healthClinical", v)}
               rows={5}
-              placeholder="Example: Allergies, mental health considerations, involved clinicians (OT/psych/GP)..."
             />
           </Card>
 
-          <Card title="6) Risk Assessment & Management" subtitle="Risk = managed participation (not avoidance).">
+          <Card title="6) Risk Assessment & Management" subtitle="Risk = managed participation.">
             <SectionTextarea
               label="Risks, triggers & early warning signs"
               value={sections.risks}
               onChange={(v) => updateSection("risks", v)}
               rows={5}
-              placeholder="Falls, self-harm, aggression, absconding, choking, etc. Include triggers + early signs."
             />
 
             <label className="section-title-sm" style={{ display: "block", marginTop: 8 }}>
@@ -672,28 +763,25 @@ export default function CarePlanZone() {
                       .filter(Boolean)
                   )
                 }
-                placeholder="Example: Keep walkways clear; de-escalation script; incident response steps..."
               />
             </label>
           </Card>
 
-          <Card title="7) Behaviour Support (if applicable)" subtitle="Only if relevant; restrictive practices require formal authorisation.">
+          <Card title="7) Behaviour Support (if applicable)" subtitle="Only if relevant.">
             <SectionTextarea
               label="Behaviour support strategies"
               value={sections.behaviourSupport}
               onChange={(v) => updateSection("behaviourSupport", v)}
               rows={5}
-              placeholder="PBS strategies, what works/doesn’t, trauma-informed approach, escalation steps..."
             />
           </Card>
 
-          <Card title="8) Communication, Consent & Safeguards" subtitle="Choice & control, privacy, who to involve in decisions.">
+          <Card title="8) Communication, Consent & Safeguards" subtitle="Choice, privacy, who to involve.">
             <SectionTextarea
               label="Communication & decision-making preferences"
               value={sections.communication}
               onChange={(v) => updateSection("communication", v)}
               rows={4}
-              placeholder="Preferred communication style, capacity considerations, supported decision-making..."
             />
 
             <SectionTextarea
@@ -701,38 +789,34 @@ export default function CarePlanZone() {
               value={sections.safeguardsConsent}
               onChange={(v) => updateSection("safeguardsConsent", v)}
               rows={4}
-              placeholder="Consent to share info, nominee/guardian details, privacy preferences..."
             />
           </Card>
 
-          <Card title="9) Monitoring, Review & Outcomes Tracking" subtitle="Turn this into a living plan: weekly review + evidence sources.">
+          <Card title="9) Monitoring, Review & Outcomes Tracking" subtitle="Make it a living plan.">
             <SectionTextarea
               label="Monitoring & review"
               value={sections.monitoringReview}
               onChange={(v) => updateSection("monitoringReview", v)}
               rows={5}
-              placeholder="How progress is tracked, review frequency, success indicators, evidence sources..."
             />
           </Card>
 
-          <Card title="10) Legal & Ethical Notes" subtitle="Scope safe. Document consent, rights, and duty-of-care boundaries.">
+          <Card title="10) Legal & Ethical Notes" subtitle="Scope safe.">
             <SectionTextarea
               label="Legal & ethical"
               value={sections.legalEthical}
               onChange={(v) => updateSection("legalEthical", v)}
               rows={4}
-              placeholder="Confidentiality, duty of care, escalation rules, consent boundaries..."
             />
           </Card>
         </div>
       </div>
 
-      {/* Suggestions + approval workflow */}
       <div style={{ marginTop: 12 }} className="two-column">
         <div className="stack">
           <Card
             title="Suggested Worker To-Dos (pending approval)"
-            subtitle="These are generated from documents/notes. Approve what you want staff to actually do."
+            subtitle="Approve what staff should actively do."
           >
             {suggestedWorker.length === 0 ? (
               <div style={{ fontSize: 13, color: "#6b7280" }}>
@@ -765,10 +849,12 @@ export default function CarePlanZone() {
 
           <Card
             title="Approved Worker To-Dos (active)"
-            subtitle="These are the actions support workers should follow. Share via PDF for approvals/email."
+            subtitle="These are the active support actions."
           >
             {approvedWorker.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#6b7280" }}>No approved worker actions yet.</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>
+                No approved worker actions yet.
+              </div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 {approvedWorker.map((t) => (
@@ -803,7 +889,7 @@ export default function CarePlanZone() {
         <div className="stack">
           <Card
             title="Suggested Client To-Dos (pending approval)"
-            subtitle="These are participant-facing suggestions. Only approve what is safe, realistic, and agreed."
+            subtitle="Approve only safe, realistic, agreed participant actions."
           >
             {suggestedClient.length === 0 ? (
               <div style={{ fontSize: 13, color: "#6b7280" }}>
@@ -836,10 +922,12 @@ export default function CarePlanZone() {
 
           <Card
             title="Approved Client To-Dos (active)"
-            subtitle="These are participant actions to support goals. Share via PDF and confirm consent."
+            subtitle="These are the active participant actions."
           >
             {approvedClient.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#6b7280" }}>No approved client actions yet.</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>
+                No approved client actions yet.
+              </div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 {approvedClient.map((t) => (
@@ -870,28 +958,6 @@ export default function CarePlanZone() {
             )}
           </Card>
         </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="card-title">How approvals work (simple)</div>
-        <div className="card-subtitle">
-          Suggestions are generated from documents + notes. You approve the ones you want to become “active”. Then you
-          Save Draft/Reviewed and export the PDF for email approvals or verbal confirmation.
-        </div>
-        <ul style={{ marginTop: 8, color: "#4b5563", fontSize: 13, paddingLeft: 18 }}>
-          <li>
-            Click <b>Refresh Draft from Docs + Notes</b> → populates suggested To-Dos (Worker + Client).
-          </li>
-          <li>
-            Click <b>Approve</b> on an item → it moves into Approved To-Dos.
-          </li>
-          <li>
-            Click <b>Save Reviewed</b> → locks a clean version (auditor/provider friendly).
-          </li>
-          <li>
-            Click <b>Download PDF</b> → share for sign-off (email / provider / participant / auditor).
-          </li>
-        </ul>
       </div>
     </div>
   );

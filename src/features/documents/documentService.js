@@ -1,7 +1,13 @@
 // src/features/documents/documentService.js
-import { idbDelete, idbGetAll, idbGetAllByIndex, idbPut } from "./idb";
-import { classifyDocument } from "./documentClassifier";
-import { extractSections } from "./documentSectionExtractor";
+
+import {
+  idbDelete,
+  idbGetAll,
+  idbGetAllByIndex,
+  idbPut,
+} from "./idb";
+
+import { extractDocumentIntelligence } from "../../engines/documentIntelligence";
 
 /* -------------------------------------------
    Utilities
@@ -13,8 +19,20 @@ function uid() {
 
 function notifyDocumentsChanged(clientId) {
   try {
-    window.dispatchEvent(new CustomEvent("tn:documents-changed", { detail: { clientId } }));
-  } catch {}
+    window.dispatchEvent(
+      new CustomEvent("tn:documents-changed", { detail: { clientId } })
+    );
+  } catch (err) {
+    console.warn("Could not dispatch tn:documents-changed event", err);
+  }
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function uniq(v = []) {
+  return [...new Set(safeArray(v).filter(Boolean).map((x) => String(x).trim()).filter(Boolean))];
 }
 
 /* -------------------------------------------
@@ -50,6 +68,12 @@ export async function addDocument({
 }) {
   const createdAt = new Date().toISOString();
 
+  const intelligence = extractDocumentIntelligence({
+    text: textContent || "",
+    fileName: fileName || title || "",
+    explicitType: docType || "",
+  });
+
   const record = {
     id: uid(),
     clientId,
@@ -68,20 +92,25 @@ export async function addDocument({
     fileSize: fileSize || 0,
 
     // Extraction fields
-    extractedText: "",
-    extractedAt: "",
-
-    extractionMethod: "",
+    extractedText: textContent || "",
+    extractedAt: textContent ? createdAt : "",
+    extractionMethod: textContent ? "manual_text" : "",
     ocrConfidence: null,
 
-    // Structured intelligence (always exists)
-    docCategory: "general_clinical_document",
-    sectionMap: {},
-    derivedGoals: [],
-    derivedRisks: [],
-    derivedSupports: [],
-    derivedTriggers: [],
-    derivedRecommendations: [],
+    // Intelligence fields
+    docCategory: intelligence.category,
+    sectionMap: intelligence.sectionMap,
+
+    derivedGoals: intelligence.derivedGoals,
+    derivedRisks: intelligence.derivedRisks,
+    derivedSupports: intelligence.derivedSupports,
+    derivedTriggers: intelligence.derivedTriggers,
+    derivedCommunication: intelligence.derivedCommunication,
+    derivedHealthClinical: intelligence.derivedHealthClinical,
+    derivedStrengths: intelligence.derivedStrengths,
+    derivedBehaviourSupport: intelligence.derivedBehaviourSupport,
+    derivedLegalEthical: intelligence.derivedLegalEthical,
+    derivedRoutines: intelligence.derivedRoutines,
   };
 
   await idbPut("documents", record);
@@ -98,19 +127,6 @@ export async function deleteDocument(id) {
   const found = docs?.find((d) => d.id === id);
   await idbDelete("documents", id);
   if (found?.clientId) notifyDocumentsChanged(found.clientId);
-}
-
-/**
- * ✅ Delete ALL documents for a client (cascade helper for deleteClientFull)
- */
-export async function deleteAllDocumentsForClient(clientId) {
-  if (!clientId) return false;
-  const docs = await listDocumentsForClient(clientId);
-  for (const d of docs) {
-    await idbDelete("documents", d.id);
-  }
-  notifyDocumentsChanged(clientId);
-  return true;
 }
 
 /* -------------------------------------------
@@ -138,30 +154,89 @@ export async function attachExtractedText(docId, extractedText, meta = {}) {
 
   const safeText = extractedText || "";
 
-  // Classification (broad)
-  const docCategory = classifyDocument(safeText, found.fileName || found.title || "");
-
-  // Section extraction
-  const sectionMap = extractSections(safeText);
+  const intelligence = extractDocumentIntelligence({
+    text: safeText,
+    fileName: found.fileName || found.title || "",
+    explicitType: found.docType || "",
+  });
 
   const updated = {
     ...found,
     extractedText: safeText,
     extractedAt: new Date().toISOString(),
     extractionMethod: meta.extractionMethod || found.extractionMethod || "",
-    ocrConfidence: typeof meta.ocrConfidence === "number" ? meta.ocrConfidence : found.ocrConfidence ?? null,
+    ocrConfidence:
+      typeof meta.ocrConfidence === "number"
+        ? meta.ocrConfidence
+        : found.ocrConfidence ?? null,
 
-    // ✅ Always-populated structured fields
-    docCategory,
-    sectionMap,
-    derivedGoals: sectionMap.goals || [],
-    derivedRisks: sectionMap.risks || [],
-    derivedSupports: sectionMap.supports || [],
-    derivedTriggers: sectionMap.triggers || [],
-    derivedRecommendations: sectionMap.recommendations || [],
+    docCategory: intelligence.category,
+    sectionMap: intelligence.sectionMap,
+
+    derivedGoals: uniq(intelligence.derivedGoals),
+    derivedRisks: uniq(intelligence.derivedRisks),
+    derivedSupports: uniq(intelligence.derivedSupports),
+    derivedTriggers: uniq(intelligence.derivedTriggers),
+    derivedCommunication: uniq(intelligence.derivedCommunication),
+    derivedHealthClinical: uniq(intelligence.derivedHealthClinical),
+    derivedStrengths: uniq(intelligence.derivedStrengths),
+    derivedBehaviourSupport: uniq(intelligence.derivedBehaviourSupport),
+    derivedLegalEthical: uniq(intelligence.derivedLegalEthical),
+    derivedRoutines: uniq(intelligence.derivedRoutines),
   };
 
   await idbPut("documents", updated);
   notifyDocumentsChanged(updated.clientId);
   return updated;
+}
+
+/* -------------------------------------------
+   Aggregate intelligence across a client
+-------------------------------------------- */
+
+export async function buildClientDocumentIntelligence(clientId) {
+  const docs = await listDocumentsForClient(clientId);
+
+  const bucket = {
+    participantDetails: [],
+    goals: [],
+    strengths: [],
+    functionalNeeds: [],
+    healthClinical: [],
+    risks: [],
+    triggers: [],
+    communication: [],
+    behaviourSupport: [],
+    legalEthical: [],
+    routinesAndPreferences: [],
+  };
+
+  for (const d of docs) {
+    bucket.participantDetails.push(...safeArray(d?.sectionMap?.participantDetails));
+    bucket.goals.push(...safeArray(d?.derivedGoals));
+    bucket.strengths.push(...safeArray(d?.derivedStrengths));
+    bucket.functionalNeeds.push(...safeArray(d?.derivedSupports));
+    bucket.healthClinical.push(...safeArray(d?.derivedHealthClinical));
+    bucket.risks.push(...safeArray(d?.derivedRisks));
+    bucket.triggers.push(...safeArray(d?.derivedTriggers));
+    bucket.communication.push(...safeArray(d?.derivedCommunication));
+    bucket.behaviourSupport.push(...safeArray(d?.derivedBehaviourSupport));
+    bucket.legalEthical.push(...safeArray(d?.derivedLegalEthical));
+    bucket.routinesAndPreferences.push(...safeArray(d?.derivedRoutines));
+  }
+
+  return {
+    participantDetails: uniq(bucket.participantDetails),
+    goals: uniq(bucket.goals),
+    strengths: uniq(bucket.strengths),
+    functionalNeeds: uniq(bucket.functionalNeeds),
+    healthClinical: uniq(bucket.healthClinical),
+    risks: uniq(bucket.risks),
+    triggers: uniq(bucket.triggers),
+    communication: uniq(bucket.communication),
+    behaviourSupport: uniq(bucket.behaviourSupport),
+    legalEthical: uniq(bucket.legalEthical),
+    routinesAndPreferences: uniq(bucket.routinesAndPreferences),
+    documentCount: docs.length,
+  };
 }
