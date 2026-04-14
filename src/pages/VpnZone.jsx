@@ -4,10 +4,12 @@ import { loadSessions, saveSessions } from "../data/sessionStore";
 import { loadClients } from "../data/clientsStore";
 import { useActiveClient } from "../context/ActiveClientContext";
 import ClientSelectorBar from "../components/ClientSelectorBar";
+import { useAuth } from "../context/AuthContext";
 
 export default function VpnZone() {
+  const { user } = useAuth();
   const { activeClientId } = useActiveClient();
-  const clients = useMemo(() => loadClients(), []);
+  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
   const fallbackId = clients[0]?.id || "";
 
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || fallbackId);
@@ -26,7 +28,7 @@ export default function VpnZone() {
 
   const handleSaveRemote = () => {
     if (!selectedClientId) return alert("Select a client first.");
-    const all = loadSessions();
+    const all = loadSessions(user?.id);
     const timestamp = new Date().toISOString();
 
     const payload = {
@@ -43,7 +45,7 @@ export default function VpnZone() {
       [selectedClientId]: [payload, ...(all[selectedClientId] || [])],
     };
 
-    saveSessions(updated);
+    saveSessions(updated, user?.id);
     alert("Remote session logged.");
     setRemoteType("");
     setParticipants("");

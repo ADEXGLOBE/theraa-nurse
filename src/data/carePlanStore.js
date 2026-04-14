@@ -1,3 +1,4 @@
+// src/data/carePlanStore.js
 const STORAGE_KEY = "theraa_nurse_careplans_v2";
 
 function loadAll() {
@@ -16,75 +17,68 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function loadCarePlanVersions(clientId) {
+function ownerKey(ownerId) {
+  return ownerId || "__public__";
+}
 
+export function loadCarePlanVersions(clientId, ownerId = null) {
   const all = loadAll();
-  const list = all[clientId] || [];
-
-  return [...list].sort(
-    (a, b) => (a.createdAt < b.createdAt ? 1 : -1)
-  );
-
+  const ownerBucket = all[ownerKey(ownerId)] || {};
+  const list = ownerBucket[clientId] || [];
+  return [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 export function saveCarePlanVersion({
   clientId,
   status = "draft",
   plan,
-  evidenceCount = 0
+  evidenceCount = 0,
+  ownerId = null,
 }) {
-
   if (!clientId) return null;
 
   const all = loadAll();
-  const existing = all[clientId] || [];
+  const key = ownerKey(ownerId);
+
+  if (!all[key]) all[key] = {};
+  const existing = all[key][clientId] || [];
 
   const version = {
     id: uid(),
     clientId,
+    ownerId,
     status,
-    plan,
-    evidenceCount,
-    createdAt: new Date().toISOString()
+    plan: plan || {},
+    evidenceCount: typeof evidenceCount === "number" ? evidenceCount : 0,
+    createdAt: new Date().toISOString(),
   };
 
-  all[clientId] = [version, ...existing];
-
+  all[key][clientId] = [version, ...existing];
   saveAll(all);
 
   return version;
-
 }
 
-/* NEW */
-
-export function updateCarePlan(clientId, updatedPlan) {
-
+export function deleteCarePlansForClient(clientId, ownerId = null) {
+  if (!clientId) return;
   const all = loadAll();
-
-  if (!all[clientId]) return;
-
-  all[clientId][0].plan = updatedPlan;
-
+  const key = ownerKey(ownerId);
+  if (!all[key]) return;
+  delete all[key][clientId];
   saveAll(all);
-
 }
 
-export function loadCarePlans() {
-
+export function loadCarePlans(ownerId = null) {
   const all = loadAll();
+  const ownerBucket = all[ownerKey(ownerId)] || {};
   const latestByClient = {};
 
-  Object.keys(all).forEach(clientId => {
-
-    const versions = all[clientId] || [];
-
+  Object.keys(ownerBucket).forEach((clientId) => {
+    const versions = ownerBucket[clientId] || [];
     if (versions.length > 0) {
       latestByClient[clientId] = versions[0].plan;
     }
-
   });
 
   return latestByClient;
-
 }

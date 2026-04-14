@@ -1,6 +1,7 @@
+// src/data/sessionStore.js
 const STORAGE_KEY = "theraaNurseSessions_v3";
 
-export function loadSessions() {
+function loadAllSessions() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -10,7 +11,7 @@ export function loadSessions() {
   }
 }
 
-export function saveSessions(all) {
+function saveAllSessions(all) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   } catch (e) {
@@ -18,22 +19,17 @@ export function saveSessions(all) {
   }
 }
 
-/* NEW */
+function ownerKey(ownerId) {
+  return ownerId || "__public__";
+}
 
-export function addSession(clientId, session) {
+export function loadSessions(ownerId = null) {
+  const all = loadAllSessions();
+  return all[ownerKey(ownerId)] || {};
+}
 
-  const sessions = loadSessions();
-
-  if (!sessions[clientId]) {
-    sessions[clientId] = [];
-  }
-
-  sessions[clientId].push({
-    ...session,
-    id: Date.now(),
-    createdAt: new Date().toISOString()
-  });
-
-  saveSessions(sessions);
-
+export function saveSessions(allSessionsForOwner, ownerId = null) {
+  const all = loadAllSessions();
+  all[ownerKey(ownerId)] = allSessionsForOwner || {};
+  saveAllSessions(all);
 }

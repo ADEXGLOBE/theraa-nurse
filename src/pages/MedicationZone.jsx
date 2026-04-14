@@ -4,6 +4,7 @@ import { loadSessions, saveSessions } from "../data/sessionStore";
 import { loadClients } from "../data/clientsStore";
 import { useActiveClient } from "../context/ActiveClientContext";
 import ClientSelectorBar from "../components/ClientSelectorBar";
+import { useAuth } from "../context/AuthContext";
 
 const INITIAL_MEDS = [
   { id: 1, name: "Sertraline 50mg mane", taken: false },
@@ -12,8 +13,9 @@ const INITIAL_MEDS = [
 ];
 
 export default function MedicationZone() {
+  const { user } = useAuth();
   const { activeClientId } = useActiveClient();
-  const clients = useMemo(() => loadClients(), []);
+  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
   const fallbackId = clients[0]?.id || "";
 
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || fallbackId);
@@ -27,8 +29,8 @@ export default function MedicationZone() {
   }, [activeClientId]);
 
   useEffect(() => {
-    setAllSessions(loadSessions());
-  }, []);
+    setAllSessions(loadSessions(user?.id));
+  }, [user?.id]);
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) || null,
@@ -58,7 +60,7 @@ export default function MedicationZone() {
     };
 
     setAllSessions(updated);
-    saveSessions(updated);
+    saveSessions(updated, user?.id);
     alert("Medication check saved.");
 
     setMedications((prev) => prev.map((m) => ({ ...m, taken: false })));

@@ -5,6 +5,9 @@ import { loadCarePlans } from "../data/carePlanStore";
 import { loadClients } from "../data/clientsStore";
 import { useActiveClient } from "../context/ActiveClientContext";
 import ClientSelectorBar from "../components/ClientSelectorBar";
+import { useAuth } from "../context/AuthContext";
+
+
 
 const BODY_SYSTEMS = [
   "Respiratory",
@@ -27,9 +30,10 @@ const MOOD_STATES = [
 ];
 
 export default function TherapyZone() {
+  const { user } = useAuth();
   const { activeClientId } = useActiveClient();
 
-  const clients = useMemo(() => loadClients(), []);
+  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
   const fallbackId = clients[0]?.id || "";
 
   const [selectedClientId, setSelectedClientId] = useState(activeClientId || fallbackId);
@@ -47,8 +51,22 @@ export default function TherapyZone() {
 
   // load sessions on mount
   useEffect(() => {
-    setAllSessions(loadSessions());
-  }, []);
+    setAllSessions(loadSessions(user?.id));
+  }, [user?.id]);
+
+  const handleSave = () => {
+    const updated = {
+      ...allSessions,
+    };
+      
+    
+  
+    setAllSessions(updated);
+    saveSessions(updated, user?.id);
+  
+  };
+
+  
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) || null,
@@ -80,7 +98,7 @@ export default function TherapyZone() {
     };
 
     setAllSessions(updated);
-    saveSessions(updated);
+    saveSessions(updated, user?.id);
 
     setCheckedSystems([]);
     setMood("");

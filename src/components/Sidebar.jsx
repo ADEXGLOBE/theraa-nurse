@@ -1,75 +1,85 @@
 // src/components/Sidebar.jsx
-import mockZones from "../data/mockZones";
-import { useActiveClient } from "../context/ActiveClientContext";
+import { useAuth } from "../context/AuthContext";
+
+const navItems = [
+  { key: "home", label: "Home" },
+  { key: "clients", label: "Clients" },
+  { key: "documents", label: "Documents" },
+  { key: "insights", label: "Insights" },
+  { key: "careplan", label: "Care Plan" },
+  { key: "therapy", label: "Therapy" },
+  { key: "meds", label: "Medication" },
+  { key: "staff", label: "Staff / AI" },
+  { key: "vpn", label: "Remote / VPN" },
+  { key: "paramedic", label: "Paramedic" },
+];
 
 export default function Sidebar({ selectedZone, setSelectedZone }) {
-  const { clients, activeClientId, setActiveClientId, activeClient } =
-    useActiveClient();
+  const { user, signOut } = useAuth();
 
   return (
-    <aside className="sidebar">
-      <div>
-        <div className="sidebar-header">
-          <div className="sidebar-logo">TN</div>
-          <div>
-            <div style={{ fontWeight: 700 }}>Theraa Nurse v1.0</div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>
-              Service delivery optimisation MVP
-            </div>
-            {activeClient ? (
-              <div style={{ fontSize: 11, color: "#111827", marginTop: 6 }}>
-                Active: <b>{activeClient.name}</b>
-              </div>
-            ) : null}
-          </div>
+    <aside
+      style={{
+        width: 260,
+        minHeight: "100vh",
+        borderRight: "1px solid #e5e7eb",
+        background: "#ffffff",
+        padding: 16,
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>
+          Theraa Nurse
         </div>
-
-        <div className="sidebar-zones">
-          <div className="sidebar-zones-title">Zones</div>
-          {mockZones.map((z) => (
-            <button
-              key={z.id}
-              className={
-                "sidebar-zone-button" + (selectedZone === z.id ? " active" : "")
-              }
-              onClick={() => setSelectedZone(z.id)}
-            >
-              <div>{z.label}</div>
-              <div style={{ fontSize: 11, opacity: 0.8 }}>{z.subtitle}</div>
-            </button>
-          ))}
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+          Logged in as
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
+          {user?.email || "Unknown user"}
         </div>
       </div>
 
-      <div>
-        <div className="sidebar-clients-title">Clients</div>
-        {(!clients || clients.length === 0) && (
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            No clients yet — add on Clients page.
-          </div>
-        )}
+      <div style={{ display: "grid", gap: 8 }}>
+        {navItems.map((item) => {
+          const active = selectedZone === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => setSelectedZone(item.key)}
+              style={{
+                textAlign: "left",
+                border: "1px solid #e5e7eb",
+                background: active ? "#0f172a" : "#f8fafc",
+                color: active ? "#ffffff" : "#334155",
+                borderRadius: 12,
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
 
-        {clients?.map((c) => (
-          <button
-            key={c.id}
-            className="sidebar-client-card"
-            style={{
-              width: "100%",
-              textAlign: "left",
-              cursor: "pointer",
-              border:
-                c.id === activeClientId ? "1px solid #2563eb" : "1px solid #e5e7eb",
-              background: c.id === activeClientId ? "#eff6ff" : "white",
-            }}
-            onClick={() => setActiveClientId(c.id)}
-            title="Set as active client"
-          >
-            <div style={{ fontWeight: 700 }}>{c.name}</div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>
-              {c.age} yrs · {c.primaryZone || "—"}
-            </div>
-          </button>
-        ))}
+      <div style={{ marginTop: 20 }}>
+        <button
+          onClick={signOut}
+          style={{
+            width: "100%",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 12px",
+            background: "#b91c1c",
+            color: "#fff",
+            cursor: "pointer",
+            fontWeight: 700,
+          }}
+        >
+          Sign Out
+        </button>
       </div>
     </aside>
   );

@@ -15,6 +15,7 @@ import {
   generateCarePlanDraft,
 } from "../features/careplans/carePlanGenerator";
 import { loadSessions } from "../data/sessionStore";
+import { useAuth } from "../context/AuthContext";
 
 /**
  * CarePlanZone
@@ -26,6 +27,7 @@ import { loadSessions } from "../data/sessionStore";
  * - Running Source integration
  * - PDF export
  */
+
 
 const EMPTY_PLAN = () => ({
   goalsShort: "",
@@ -246,7 +248,8 @@ function SectionTextarea({ label, value, onChange, rows = 4, placeholder }) {
 }
 
 export default function CarePlanZone() {
-  const clients = loadClients();
+  const { user } = useAuth();
+  const clients = loadClients(user?.id);
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || "");
 
   const [versions, setVersions] = useState([]);
@@ -268,7 +271,7 @@ export default function CarePlanZone() {
 
   useEffect(() => {
     if (!selectedClientId) return;
-    const v = loadCarePlanVersions(selectedClientId) || [];
+    const v = loadCarePlanVersions(selectedClientId, user?.id) || [];
     setVersions(v);
 
     const initial = normalizePlan(v[0]?.plan || EMPTY_PLAN());
@@ -276,7 +279,7 @@ export default function CarePlanZone() {
     setActivePlan(initial);
 
     setSelectedVersionId(v[0]?.id || "");
-  }, [selectedClientId]);
+  }, [selectedClientId,user?.id]);
 
   useEffect(() => {
     if (!selectedVersion) return;
@@ -332,7 +335,7 @@ export default function CarePlanZone() {
       const docs = await listDocumentsForClient(client.id);
       const documentIntelligence = await buildClientDocumentIntelligence(client.id);
 
-      const sessionsMap = loadSessions();
+      const sessionsMap = loadSessions(user?.id);
       const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
 
       const findings = buildFindingsFromDocs(docs || []);
@@ -465,9 +468,10 @@ export default function CarePlanZone() {
       status,
       plan,
       evidenceCount: latestVersion?.evidenceCount || 0,
+      ownerId: user?.id,
     });
 
-    const v = loadCarePlanVersions(client.id) || [];
+    const v = loadCarePlanVersions(client.id, user?.id) || [];
     setVersions(v);
     setSelectedVersionId(v[0]?.id || "");
     alert(status === "reviewed" ? "Saved as Reviewed." : "Saved as Draft.");

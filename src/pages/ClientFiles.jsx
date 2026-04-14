@@ -10,9 +10,10 @@ import {
 } from "../features/documents/documentService";
 import { extractTextFromFile, guessFileKind } from "../features/extraction/textExtractors";
 import { ocrFileToText } from "../features/extraction/ocrService";
-import { ensureSeedClients, loadClients } from "../data/clientsStore";
+import { loadClients } from "../data/clientsStore";
 import mockClients from "../data/mockClients";
 import DocumentReviewPanel from "../components/DocumentReviewPanel";
+import { useAuth } from "../context/AuthContext";
 
 
 function formatDate(iso) {
@@ -35,6 +36,7 @@ function downloadBlob(blob, filename) {
 }
 
 export default function ClientFiles() {
+  const { user } = useAuth();
   const [clients, setClients] = useState([]);
   const [mode, setMode] = useState("worker");
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -50,11 +52,10 @@ export default function ClientFiles() {
   const [status, setStatus] = useState({ kind: "idle", msg: "" });
 
   useEffect(() => {
-    ensureSeedClients(mockClients);
-    const loaded = loadClients();
+    const loaded = loadClients(user?.id);
     setClients(loaded);
     if (loaded.length > 0) setSelectedClientId(loaded[0].id);
-  }, []);
+  }, [user?.id]);
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) || null,

@@ -1,5 +1,5 @@
+// src/App.jsx
 import { useState } from "react";
-
 import Sidebar from "./components/Sidebar";
 
 import TherapyZone from "./pages/TherapyZone";
@@ -12,89 +12,64 @@ import ClientFiles from "./pages/ClientFiles";
 import Clients from "./pages/Clients";
 import ClientInsights from "./pages/ClientInsights";
 import HomeDashboard from "./pages/HomeDashboard";
-
-import LoginPage from "./auth/LoginPage";
+import AuthPage from "./pages/AuthPage";
 
 import { ActiveClientProvider } from "./context/ActiveClientContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
+function AppShell() {
+  const [selectedZone, setSelectedZone] = useState("home");
+  const { user, authReady } = useAuth();
+
+  const renderMain = () => {
+    switch (selectedZone) {
+      case "home":
+        return <HomeDashboard />;
+      case "clients":
+        return <Clients />;
+      case "documents":
+        return <ClientFiles />;
+      case "insights":
+        return <ClientInsights />;
+      case "careplan":
+        return <CarePlanZone />;
+      case "therapy":
+        return <TherapyZone />;
+      case "meds":
+        return <MedicationZone />;
+      case "staff":
+        return <StaffZone />;
+      case "vpn":
+        return <VpnZone />;
+      case "paramedic":
+        return <ParamedicZone />;
+      default:
+        return <HomeDashboard />;
+    }
+  };
+
+  if (!authReady) {
+    return <div style={{ padding: 24 }}>Loading Theraa Nurse...</div>;
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  return (
+    <ActiveClientProvider>
+      <div className="app-root">
+        <Sidebar selectedZone={selectedZone} setSelectedZone={setSelectedZone} />
+        <main className="main-content">{renderMain()}</main>
+      </div>
+    </ActiveClientProvider>
+  );
+}
 
 export default function App() {
-
-const [selectedZone,setSelectedZone] = useState("home");
-const [user,setUser] = useState(null);
-
-
-// LOGIN GATE
-if(!user){
-
-return <LoginPage onLogin={setUser}/>
-
-}
-
-
-const renderMain = () => {
-
-switch(selectedZone){
-
-case "home":
-return <HomeDashboard/>
-
-case "clients":
-return <Clients/>
-
-case "documents":
-return <ClientFiles/>
-
-case "insights":
-return <ClientInsights/>
-
-case "careplan":
-return <CarePlanZone/>
-
-case "therapy":
-return <TherapyZone/>
-
-case "meds":
-return <MedicationZone/>
-
-case "staff":
-return <StaffZone/>
-
-case "vpn":
-return <VpnZone/>
-
-case "paramedic":
-return <ParamedicZone/>
-
-default:
-return <HomeDashboard/>
-
-}
-
-};
-
-
-return (
-
-<ActiveClientProvider>
-
-<div className="app-root">
-
-<Sidebar
-selectedZone={selectedZone}
-setSelectedZone={setSelectedZone}
-/>
-
-<main className="main-content">
-
-{renderMain()}
-
-</main>
-
-</div>
-
-</ActiveClientProvider>
-
-);
-
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
+  );
 }

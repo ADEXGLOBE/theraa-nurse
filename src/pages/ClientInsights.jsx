@@ -4,10 +4,8 @@ import { loadClients } from "../data/clientsStore";
 import { loadSessions } from "../data/sessionStore";
 import { loadCarePlanVersions } from "../data/carePlanStore";
 import { buildClientDocumentIntelligence } from "../features/documents/documentService";
-import {
-  generateMonthlyNdisReport,
-  downloadMonthlySummary,
-} from "../features/reports/reportGenerator";
+import { generateMonthlyNdisReport, downloadMonthlySummary} from "../features/reports/reportGenerator";
+import { useAuth } from "../context/AuthContext";
 
 function Card({ title, subtitle, children, right }) {
   return (
@@ -85,7 +83,8 @@ function currentMonthKey() {
 }
 
 export default function ClientInsights() {
-  const clients = loadClients();
+  const { user } = useAuth();
+  const clients = loadClients(user?.id);
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || "");
   const [documentIntelligence, setDocumentIntelligence] = useState(null);
 
@@ -94,7 +93,7 @@ export default function ClientInsights() {
     [clients, selectedClientId]
   );
 
-  const sessionsMap = loadSessions();
+  const sessionsMap = loadSessions(user?.id);
   const sessions = useMemo(
     () => (selectedClientId ? sessionsMap?.[selectedClientId] || [] : []),
     [sessionsMap, selectedClientId]
@@ -102,9 +101,9 @@ export default function ClientInsights() {
 
   const latestVersion = useMemo(() => {
     if (!selectedClientId) return null;
-    const versions = loadCarePlanVersions(selectedClientId) || [];
+    const versions = loadCarePlanVersions(selectedClientId, user?.id) || [];
     return versions[0] || null;
-  }, [selectedClientId]);
+  }, [selectedClientId, user?.id]);
 
   useEffect(() => {
     let mounted = true;
