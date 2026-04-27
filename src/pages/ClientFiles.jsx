@@ -40,7 +40,6 @@ export default function ClientFiles() {
   const [clients, setClients] = useState([]);
   const [mode, setMode] = useState("worker");
   const [selectedClientId, setSelectedClientId] = useState("");
-
   const [authorName, setAuthorName] = useState("");
   const [docType, setDocType] = useState("session_note");
   const [title, setTitle] = useState("");

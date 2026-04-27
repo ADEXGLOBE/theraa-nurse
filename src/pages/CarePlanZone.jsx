@@ -16,6 +16,7 @@ import {
 } from "../features/careplans/carePlanGenerator";
 import { loadSessions } from "../data/sessionStore";
 import { useAuth } from "../context/AuthContext";
+import { buildDraftFromEvidence } from "../engines/careEngine";
 
 /**
  * CarePlanZone
@@ -27,7 +28,6 @@ import { useAuth } from "../context/AuthContext";
  * - Running Source integration
  * - PDF export
  */
-
 
 const EMPTY_PLAN = () => ({
   goalsShort: "",
@@ -249,15 +249,26 @@ function SectionTextarea({ label, value, onChange, rows = 4, placeholder }) {
 
 export default function CarePlanZone() {
   const { user } = useAuth();
-  const clients = loadClients(user?.id);
-  const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || "");
+  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
 
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [versions, setVersions] = useState([]);
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [activePlan, setActivePlan] = useState(normalizePlan(EMPTY_PLAN()));
-
   const [isBuilding, setIsBuilding] = useState(false);
   const [lastBuildInfo, setLastBuildInfo] = useState("");
+
+  useEffect(() => {
+    if (!selectedClientId && clients.length > 0) {
+      setSelectedClientId(clients[0].id);
+    }
+    if (clients.length === 0) {
+      setSelectedClientId("");
+      setVersions([]);
+      setSelectedVersionId("");
+      setActivePlan(normalizePlan(EMPTY_PLAN()));
+    }
+  }, [clients, selectedClientId]);
 
   const client = useMemo(
     () => clients.find((c) => c.id === selectedClientId) || null,
@@ -279,15 +290,14 @@ export default function CarePlanZone() {
     setActivePlan(initial);
 
     setSelectedVersionId(v[0]?.id || "");
-  }, [selectedClientId,user?.id]);
+  }, [selectedClientId, user?.id]);
 
   useEffect(() => {
     if (!selectedVersion) return;
     const p = normalizePlan(selectedVersion.plan || EMPTY_PLAN());
     p.clientId = selectedClientId;
     setActivePlan(p);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedVersionId]);
+  }, [selectedVersion, selectedClientId]);
 
   if (!client) {
     return (
@@ -327,20 +337,18 @@ export default function CarePlanZone() {
     );
   };
 
-  async function buildDraftFromEvidence() {
+  async function buildFromAllEvidence() {
     setIsBuilding(true);
     setLastBuildInfo("");
 
     try {
       const docs = await listDocumentsForClient(client.id);
       const documentIntelligence = await buildClientDocumentIntelligence(client.id);
-
       const sessionsMap = loadSessions(user?.id);
       const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
-
       const findings = buildFindingsFromDocs(docs || []);
 
-      const draft = generateCarePlanDraft({
+      const baseDraft = generateCarePlanDraft({
         client,
         findings,
         recentSessions,
@@ -348,72 +356,133 @@ export default function CarePlanZone() {
         documentIntelligence,
       });
 
+      const engineDraft = buildDraftFromEvidence({
+        documentIntelligence,
+        recentSessions,
+        existingPlan: activePlan,
+      });
+
       setActivePlan((prev) => {
         const prevN = normalizePlan(prev);
 
         let next = normalizePlan({
           ...prevN,
-          ...draft,
+          ...baseDraft,
         });
 
         next.generatedAt = new Date().toISOString();
         next.clientId = client.id;
 
-        if (draft?.sections && typeof draft.sections === "object") {
-          next.sections = { ...next.sections, ...draft.sections };
+        if (baseDraft?.sections && typeof baseDraft.sections === "object") {
+          next.sections = { ...next.sections, ...baseDraft.sections };
         }
 
-        if (draft?.goalsShort) next.sections.goalsShort = draft.goalsShort;
-        if (draft?.goalsLong) next.sections.goalsLong = draft.goalsLong;
-        if (draft?.risks) next.sections.risks = draft.risks;
-        if (draft?.communication) next.sections.communication = draft.communication;
-        if (draft?.supports) {
-          next.sections.functionalNeeds = Array.isArray(draft.supports)
-            ? draft.supports.join("\n")
-            : draft.supports;
+        if (baseDraft?.goalsShort) next.sections.goalsShort = baseDraft.goalsShort;
+        if (baseDraft?.goalsLong) next.sections.goalsLong = baseDraft.goalsLong;
+        if (baseDraft?.risks) next.sections.risks = baseDraft.risks;
+        if (baseDraft?.communication) next.sections.communication = baseDraft.communication;
+        if (baseDraft?.supports) {
+          next.sections.functionalNeeds = Array.isArray(baseDraft.supports)
+            ? baseDraft.supports.join("\n")
+            : baseDraft.supports;
         }
-        if (draft?.legalEthical) next.sections.legalEthical = draft.legalEthical;
+        if (baseDraft?.legalEthical) {
+          next.sections.legalEthical = baseDraft.legalEthical;
+        }
+
+        if (engineDraft?.sections) {
+          next.sections = {
+            ...next.sections,
+            ...(engineDraft.sections.participantDetails
+              ? { participantDetails: engineDraft.sections.participantDetails }
+              : {}),
+            ...(engineDraft.sections.strengths
+              ? { strengths: engineDraft.sections.strengths }
+              : {}),
+            ...(engineDraft.sections.functionalNeeds
+              ? { functionalNeeds: engineDraft.sections.functionalNeeds }
+              : {}),
+            ...(engineDraft.sections.healthClinical
+              ? { healthClinical: engineDraft.sections.healthClinical }
+              : {}),
+            ...(engineDraft.sections.monitoringReview
+              ? { monitoringReview: engineDraft.sections.monitoringReview }
+              : {}),
+            ...(engineDraft.sections.behaviourSupport
+              ? { behaviourSupport: engineDraft.sections.behaviourSupport }
+              : {}),
+            ...(engineDraft.sections.safeguardsConsent
+              ? { safeguardsConsent: engineDraft.sections.safeguardsConsent }
+              : {}),
+            ...(engineDraft.sections.goalsShort
+              ? { goalsShort: engineDraft.sections.goalsShort }
+              : {}),
+            ...(engineDraft.sections.goalsLong
+              ? { goalsLong: engineDraft.sections.goalsLong }
+              : {}),
+            ...(engineDraft.sections.risks
+              ? { risks: engineDraft.sections.risks }
+              : {}),
+            ...(engineDraft.sections.communication
+              ? { communication: engineDraft.sections.communication }
+              : {}),
+            ...(engineDraft.sections.legalEthical
+              ? { legalEthical: engineDraft.sections.legalEthical }
+              : {}),
+          };
+        }
 
         next.runningSource = {
           ...(prevN?.runningSource || {}),
-          ...(draft?.runningSource || {}),
+          ...(baseDraft?.runningSource || {}),
+          ...(engineDraft?.runningSource || {}),
         };
 
         next.approvals = {
           approvedWorker: uniq([
             ...(prevN?.approvals?.approvedWorker || []),
-            ...(draft?.approvals?.approvedWorker || []),
+            ...(baseDraft?.approvals?.approvedWorker || []),
           ]),
           approvedClient: uniq([
             ...(prevN?.approvals?.approvedClient || []),
-            ...(draft?.approvals?.approvedClient || []),
+            ...(baseDraft?.approvals?.approvedClient || []),
           ]),
         };
 
-        const draftTodosWorker = uniq(asArray(draft?.todos?.worker));
-        const draftTodosClient = uniq(asArray(draft?.todos?.client));
+        const draftTodosWorker = uniq(asArray(baseDraft?.todos?.worker));
+        const draftTodosClient = uniq(asArray(baseDraft?.todos?.client));
+        const engineTodosWorker = uniq(asArray(engineDraft?.todos?.worker));
+        const engineTodosClient = uniq(asArray(engineDraft?.todos?.client));
 
         next.suggestions = {
-          worker: asArray(draft?.suggestions?.worker || next?.suggestions?.worker),
-          client: asArray(draft?.suggestions?.client || next?.suggestions?.client),
+          worker: asArray(
+            baseDraft?.suggestions?.worker || next?.suggestions?.worker
+          ),
+          client: asArray(
+            baseDraft?.suggestions?.client || next?.suggestions?.client
+          ),
           approvedWorker: asArray(
-            draft?.suggestions?.approvedWorker || next?.suggestions?.approvedWorker
+            baseDraft?.suggestions?.approvedWorker ||
+              next?.suggestions?.approvedWorker
           ),
           approvedClient: asArray(
-            draft?.suggestions?.approvedClient || next?.suggestions?.approvedClient
+            baseDraft?.suggestions?.approvedClient ||
+              next?.suggestions?.approvedClient
           ),
         };
 
-        const suggestedWorkerStrings = uniq(asArray(draft?.suggestedWorkerTodos));
-        const suggestedClientStrings = uniq(asArray(draft?.suggestedClientTodos));
+        const suggestedWorkerStrings = uniq(asArray(baseDraft?.suggestedWorkerTodos));
+        const suggestedClientStrings = uniq(asArray(baseDraft?.suggestedClientTodos));
 
         let nextTodosWorker = uniq([
           ...draftTodosWorker,
+          ...engineTodosWorker,
           ...suggestedWorkerStrings,
         ]);
 
         let nextTodosClient = uniq([
           ...draftTodosClient,
+          ...engineTodosClient,
           ...suggestedClientStrings,
         ]);
 
@@ -442,11 +511,12 @@ export default function CarePlanZone() {
         next.supports = next.sections.functionalNeeds || "";
         next.legalEthical = next.sections.legalEthical || next.legalEthical || "";
 
-        next = normalizePlan(next);
-        return next;
+        return normalizePlan(next);
       });
 
-      const info = `Built from ${docs?.length || 0} document(s), ${documentIntelligence?.documentCount || 0} analysed source(s), and ${recentSessions.length} recent session(s).`;
+      const info = `Built from ${docs?.length || 0} document(s), ${
+        documentIntelligence?.documentCount || 0
+      } analysed source(s), and ${recentSessions.length} recent session(s).`;
       setLastBuildInfo(info);
 
       alert(
@@ -630,7 +700,7 @@ export default function CarePlanZone() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 className="btn-primary"
-                onClick={buildDraftFromEvidence}
+                onClick={buildFromAllEvidence}
                 disabled={isBuilding}
               >
                 {isBuilding ? "⏳ Building…" : "🧠 Refresh Draft from Docs + Notes"}
@@ -648,12 +718,12 @@ export default function CarePlanZone() {
       {purposeCards.length > 0 ? (
         <Card
           title="Running Source – Purpose Plans"
-          subtitle="These are the purpose-based lifestyle recommendations generated from care plans, notes, and other health-related documents."
+          subtitle="Purpose-based lifestyle recommendations generated from care plans, notes, and other health-related documents."
         >
           <div style={{ display: "grid", gap: 8 }}>
-            {purposeCards.map((card) => (
+            {purposeCards.map((card, index) => (
               <div
-                key={card.id}
+                key={card.id || `${card.title}-${index}`}
                 style={{
                   border: "1px solid #e5e7eb",
                   borderRadius: 12,
@@ -663,16 +733,16 @@ export default function CarePlanZone() {
               >
                 <div style={{ fontWeight: 700 }}>{card.title}</div>
                 <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                  Domain: {card.domain} · Frequency: {card.frequency}
+                  Domain: {card.domain || "General"} · Frequency: {card.frequency || "As planned"}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 13 }}>
-                  <strong>Why it matters:</strong> {card.whyItMatters}
+                  <strong>Why it matters:</strong> {card.whyItMatters || "—"}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13 }}>
-                  <strong>Participant action:</strong> {card.participantAction}
+                  <strong>Participant action:</strong> {card.participantAction || "—"}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13 }}>
-                  <strong>Worker action:</strong> {card.workerAction}
+                  <strong>Worker action:</strong> {card.workerAction || "—"}
                 </div>
               </div>
             ))}

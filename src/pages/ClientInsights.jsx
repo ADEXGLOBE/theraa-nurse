@@ -1,10 +1,12 @@
-// src/pages/ClientInsights.jsx
 import { useEffect, useMemo, useState } from "react";
 import { loadClients } from "../data/clientsStore";
 import { loadSessions } from "../data/sessionStore";
 import { loadCarePlanVersions } from "../data/carePlanStore";
 import { buildClientDocumentIntelligence } from "../features/documents/documentService";
-import { generateMonthlyNdisReport, downloadMonthlySummary} from "../features/reports/reportGenerator";
+import {
+  generateMonthlyNdisReport,
+  downloadMonthlySummary,
+} from "../features/reports/reportGenerator";
 import { useAuth } from "../context/AuthContext";
 
 function Card({ title, subtitle, children, right }) {
@@ -84,9 +86,19 @@ function currentMonthKey() {
 
 export default function ClientInsights() {
   const { user } = useAuth();
-  const clients = loadClients(user?.id);
-  const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || "");
+  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
+
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [documentIntelligence, setDocumentIntelligence] = useState(null);
+
+  useEffect(() => {
+    if (!selectedClientId && clients.length > 0) {
+      setSelectedClientId(clients[0].id);
+    }
+    if (clients.length === 0) {
+      setSelectedClientId("");
+    }
+  }, [clients, selectedClientId]);
 
   const client = useMemo(
     () => clients.find((c) => c.id === selectedClientId) || null,
@@ -190,6 +202,7 @@ export default function ClientInsights() {
               <div><strong>Approved worker to-dos:</strong> {report.summary.approvedWorkerTodos}</div>
               <div><strong>Approved client to-dos:</strong> {report.summary.approvedClientTodos}</div>
               <div><strong>Purpose plans generated:</strong> {report.summary.purposePlansGenerated}</div>
+              <div><strong>Overall engagement signal:</strong> {report.summary.engagementSignal}</div>
             </div>
           </Card>
 
@@ -235,9 +248,9 @@ export default function ClientInsights() {
           </div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
-            {purposeCards.map((card) => (
+            {purposeCards.map((card, index) => (
               <div
-                key={card.id}
+                key={card.id || `${card.title}-${index}`}
                 style={{
                   border: "1px solid #e5e7eb",
                   borderRadius: 12,
@@ -246,9 +259,11 @@ export default function ClientInsights() {
               >
                 <div style={{ fontWeight: 700 }}>{card.title}</div>
                 <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                  {card.domain} · {card.frequency}
+                  {card.domain || "General"} · {card.frequency || "As planned"}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 13 }}>{card.whyItMatters}</div>
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  {card.whyItMatters || "—"}
+                </div>
               </div>
             ))}
           </div>

@@ -57,6 +57,29 @@ const [mode, setMode] = useState("login"); // "login" | "signup"
     }
   }
 
+  async function handlePasswordReset() {
+  if (!email) {
+    setError("Enter your email first, then click Forgot Password.");
+    return;
+  }
+
+  setLoading(true);
+  setError("");
+  setMessage("");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+
+  if (error) {
+    setError(error.message);
+  } else {
+    setMessage("Password reset email sent. Check your inbox.");
+  }
+
+  setLoading(false);
+}
+
   return (
     <div style={styles.page}>
       <div style={styles.overlay}>
@@ -100,6 +123,23 @@ const [mode, setMode] = useState("login"); // "login" | "signup"
             >
               Sign Up
             </button>
+
+            <button
+              type="button"
+              onClick={handlePasswordReset}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#2563eb",
+                cursor: "pointer",
+                fontSize: 13,
+                textAlign: "left",
+                padding: 0,
+                marginTop: -6,
+              }}
+            >
+              Forgot password?
+              </button>
           </div>
 
           <form onSubmit={handleSubmit} style={styles.form}>
