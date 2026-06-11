@@ -3,28 +3,56 @@
 import { buildRunningSourcePlan } from "./runningSourceEngine";
 
 function normalize(text) {
-  return (text || "").replace(/\s+/g, " ").trim();
+  return String(text || "").replace(/\s+/g, " ").trim();
 }
 
 function lower(text) {
-  return (text || "").toLowerCase();
+  return String(text || "").toLowerCase();
+}
+
+function safeArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+  return [value];
+}
+
+function safeText(value) {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    return [
+      value.textContent,
+      value.extractedText,
+      value.text,
+      value.notes,
+      value.summary,
+      value.content,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(value);
 }
 
 function findAny(text, keywords = []) {
   const t = lower(text);
-  return keywords.some((k) => t.includes(lower(k)));
+  return safeArray(keywords).some((k) => t.includes(lower(k)));
 }
 
 function extractListByKeywords(text, keywords) {
   const t = lower(text || "");
   const hits = [];
-  for (const k of keywords) {
+
+  for (const k of safeArray(keywords)) {
     if (t.includes(lower(k))) hits.push(k);
   }
+
   return [...new Set(hits)];
 }
 
 function makeRiskLevel(risks) {
+  const safeRisks = safeArray(risks);
+
   const high = [
     "falls",
     "shortness of breath",
@@ -35,33 +63,43 @@ function makeRiskLevel(risks) {
     "self-harm",
     "choking",
   ];
-  if (risks.some((r) => high.some((h) => lower(r).includes(h)))) return "High";
-  if (risks.length >= 2) return "Medium";
-  return risks.length ? "Low" : "Unknown";
+
+  if (safeRisks.some((r) => high.some((h) => lower(r).includes(h)))) {
+    return "High";
+  }
+
+  if (safeRisks.length >= 2) return "Medium";
+  return safeRisks.length ? "Low" : "Unknown";
 }
 
 function uid(prefix = "todo") {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
-}
-
-function safeArray(x) {
-  return Array.isArray(x) ? x : [];
+  return `${prefix}-${Date.now().toString(36)}-${Math.random()
+    .toString(16)
+    .slice(2)}`;
 }
 
 function uniq(arr = []) {
-  return [...new Set(safeArray(arr).filter(Boolean).map((x) => String(x).trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      safeArray(arr)
+        .filter(Boolean)
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+    ),
+  ];
 }
 
 function uniqByKey(items, keyFn) {
   const seen = new Set();
   const out = [];
-  for (const it of items) {
+
+  for (const it of safeArray(items)) {
     const k = keyFn(it);
-    if (!k) continue;
-    if (seen.has(k)) continue;
+    if (!k || seen.has(k)) continue;
     seen.add(k);
     out.push(it);
   }
+
   return out;
 }
 
@@ -74,6 +112,7 @@ function joinBullets(arr = []) {
 function ensureSuggestionsShape(plan) {
   const p = plan || {};
   const s = p.suggestions || {};
+
   return {
     ...p,
     suggestions: {
@@ -89,7 +128,9 @@ function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
   const existing = ensureSuggestionsShape(existingPlan);
   const next = ensureSuggestionsShape(generated);
 
-  next.suggestions.approvedWorker = safeArray(existing.suggestions.approvedWorker);
+  next.suggestions.approvedWorker = safeArray(
+    existing.suggestions.approvedWorker
+  );
   next.suggestions.approvedClient = safeArray(existing.suggestions.approvedClient);
 
   const mergedWorker = uniqByKey(
@@ -115,11 +156,17 @@ function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
   );
 
   next.suggestions.worker = mergedWorker.filter(
-    (x) => !approvedWorkerKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+    (x) =>
+      !approvedWorkerKeys.has(
+        x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
+      )
   );
 
   next.suggestions.client = mergedClient.filter(
-    (x) => !approvedClientKeys.has(x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`)
+    (x) =>
+      !approvedClientKeys.has(
+        x?.key || `${x?.title || ""}|${x?.detail || ""}|${x?.frequency || ""}`
+      )
   );
 
   return next;
@@ -128,48 +175,101 @@ function mergeSuggestionsPreservingApprovals(existingPlan, generated) {
 /* -------------------------------------------------------
    Findings from docs
 -------------------------------------------------------- */
-
 export function buildFindingsFromDocs(docs = []) {
   const combined = normalize(
     safeArray(docs)
-      .map((d) => [d.textContent, d.extractedText].filter(Boolean).join("\n"))
+      .map((d) => safeText(d))
       .filter(Boolean)
       .join("\n\n")
   );
 
   const risks = [];
-  if (findAny(combined, ["fall", "falls", "slipped", "unsteady"])) risks.push("Falls risk");
-  if (findAny(combined, ["shortness of breath", "sob", "breathless"])) risks.push("Breathing difficulty");
-  if (findAny(combined, ["swelling", "oedema", "edema", "fluid retention"])) risks.push("Fluid retention / swelling");
-  if (findAny(combined, ["refused medication", "missed dose", "did not take medication"])) risks.push("Medication non-adherence");
-  if (findAny(combined, ["agitated", "aggression", "escalation"])) risks.push("Behaviour escalation");
-  if (findAny(combined, ["low mood", "depressed", "hopeless", "anxiety", "panic"])) risks.push("Distress / anxiety indicators");
-  if (findAny(combined, ["wandering", "abscond"])) risks.push("Wandering / absconding risk");
-  if (findAny(combined, ["choking", "aspiration", "swallow", "dysphagia"])) risks.push("Swallowing / choking risk");
-  if (findAny(combined, ["self harm", "self-harm", "suicid"])) risks.push("Self-harm / suicide risk indicators");
+
+  if (findAny(combined, ["fall", "falls", "slipped", "unsteady"])) {
+    risks.push("Falls risk");
+  }
+
+  if (findAny(combined, ["shortness of breath", "sob", "breathless"])) {
+    risks.push("Breathing difficulty");
+  }
+
+  if (findAny(combined, ["swelling", "oedema", "edema", "fluid retention"])) {
+    risks.push("Fluid retention / swelling");
+  }
+
+  if (findAny(combined, ["refused medication", "missed dose", "did not take medication"])) {
+    risks.push("Medication non-adherence");
+  }
+
+  if (findAny(combined, ["agitated", "aggression", "escalation"])) {
+    risks.push("Behaviour escalation");
+  }
+
+  if (findAny(combined, ["low mood", "depressed", "hopeless", "anxiety", "panic"])) {
+    risks.push("Distress / anxiety indicators");
+  }
+
+  if (findAny(combined, ["wandering", "abscond"])) {
+    risks.push("Wandering / absconding risk");
+  }
+
+  if (findAny(combined, ["choking", "aspiration", "swallow", "dysphagia"])) {
+    risks.push("Swallowing / choking risk");
+  }
+
+  if (findAny(combined, ["self harm", "self-harm", "suicid"])) {
+    risks.push("Self-harm / suicide risk indicators");
+  }
 
   const goals = [];
-  if (findAny(combined, ["goal:", "goals:", "aim:", "objective:", "plan goal"])) goals.push("Confirm and align with stated goals");
-  if (findAny(combined, ["walk", "mobility", "exercise", "physio"])) goals.push("Maintain/improve mobility and physical health");
-  if (findAny(combined, ["independent", "independence", "self-care"])) goals.push("Increase independence / active support");
-  if (findAny(combined, ["routine", "structure", "predictable"])) goals.push("Maintain stable routines and daily structure");
-  if (findAny(combined, ["social", "community", "participation"])) goals.push("Increase community participation and social engagement");
-  if (findAny(combined, ["work", "study", "productivity", "employment"])) goals.push("Improve productivity and vocational participation");
+
+  if (findAny(combined, ["goal:", "goals:", "aim:", "objective:", "plan goal"])) {
+    goals.push("Confirm and align with stated goals");
+  }
+
+  if (findAny(combined, ["walk", "mobility", "exercise", "physio"])) {
+    goals.push("Maintain/improve mobility and physical health");
+  }
+
+  if (findAny(combined, ["independent", "independence", "self-care"])) {
+    goals.push("Increase independence / active support");
+  }
+
+  if (findAny(combined, ["routine", "structure", "predictable"])) {
+    goals.push("Maintain stable routines and daily structure");
+  }
+
+  if (findAny(combined, ["social", "community", "participation"])) {
+    goals.push("Increase community participation and social engagement");
+  }
+
+  if (findAny(combined, ["work", "study", "productivity", "employment"])) {
+    goals.push("Improve productivity and vocational participation");
+  }
 
   const preferences = [];
+
   if (findAny(combined, ["prefers", "likes", "responds well", "music", "calm"])) {
     preferences.push("Responds well to calming or preferred activities");
   }
+
   if (findAny(combined, ["shorter activities", "gets tired", "fatigue"])) {
     preferences.push("Prefers shorter activities with planned rest breaks");
   }
+
   if (findAny(combined, ["predictable", "routine"])) {
     preferences.push("Prefers predictable routine and clear communication");
   }
 
   const medsFlags = [];
-  if (findAny(combined, ["medication", "mar", "dose", "tablet"])) medsFlags.push("Medication support referenced");
-  if (findAny(combined, ["refused", "missed"])) medsFlags.push("Potential missed/refused medication mentioned");
+
+  if (findAny(combined, ["medication", "mar", "dose", "tablet"])) {
+    medsFlags.push("Medication support referenced");
+  }
+
+  if (findAny(combined, ["refused", "missed"])) {
+    medsFlags.push("Potential missed/refused medication mentioned");
+  }
 
   const triggers = extractListByKeywords(combined, [
     "noise",
@@ -181,23 +281,27 @@ export function buildFindingsFromDocs(docs = []) {
     "conflict",
   ]).map((t) => `Trigger mentioned: ${t}`);
 
+  const uniqueRisks = uniq(risks);
+
   return {
     combinedText: combined,
-    goals: [...new Set(goals)],
-    risks: [...new Set(risks)],
-    preferences: [...new Set(preferences)],
-    medsFlags: [...new Set(medsFlags)],
-    triggers: [...new Set(triggers)],
-    riskLevel: makeRiskLevel([...new Set(risks)]),
+    goals: uniq(goals),
+    risks: uniqueRisks,
+    preferences: uniq(preferences),
+    medsFlags: uniq(medsFlags),
+    triggers: uniq(triggers),
+    riskLevel: makeRiskLevel(uniqueRisks),
   };
 }
 
 /* -------------------------------------------------------
    Suggestion object helpers
 -------------------------------------------------------- */
-
 function makeTodo({ who, title, detail, frequency, reason, source }) {
-  const key = `${who}|${title || ""}|${detail || ""}|${frequency || ""}|${reason || ""}`.trim();
+  const key = `${who}|${title || ""}|${detail || ""}|${frequency || ""}|${
+    reason || ""
+  }`.trim();
+
   return {
     id: uid(who),
     key,
@@ -223,7 +327,8 @@ function generateWorkerTodos(findings) {
     makeTodo({
       who: "worker",
       title: "Provide person-centred support",
-      detail: "Use active support and document what works, what does not, and what improves participation.",
+      detail:
+        "Use active support and document what works, what does not, and what improves participation.",
       frequency: "Every shift",
       reason: "Core Theraa Nurse support standard.",
       source: "theraa_nurse",
@@ -235,7 +340,8 @@ function generateWorkerTodos(findings) {
       makeTodo({
         who: "worker",
         title: "Falls prevention routine",
-        detail: "Check hazards, support safe footwear and mobility, and document changes in balance or confidence.",
+        detail:
+          "Check hazards, support safe footwear and mobility, and document changes in balance or confidence.",
         frequency: "Every shift",
         reason: "Falls risk identified.",
         source: "theraa_nurse",
@@ -248,7 +354,8 @@ function generateWorkerTodos(findings) {
       makeTodo({
         who: "worker",
         title: "Track distress signs and calming responses",
-        detail: "Notice early cues and redirect to a preferred calming or meaningful activity.",
+        detail:
+          "Notice early cues and redirect to a preferred calming or meaningful activity.",
         frequency: "Daily / each interaction",
         reason: "Distress indicators identified.",
         source: "theraa_nurse",
@@ -261,7 +368,9 @@ function generateWorkerTodos(findings) {
       makeTodo({
         who: "worker",
         title: "Document triggers and successful supports",
-        detail: `Track what increases distress and what helps. Trigger signals found: ${triggers.join(", ")}`,
+        detail: `Track what increases distress and what helps. Trigger signals found: ${triggers.join(
+          ", "
+        )}`,
         frequency: "Every session",
         reason: "Triggers extracted from documents or notes.",
         source: "theraa_nurse",
@@ -274,7 +383,8 @@ function generateWorkerTodos(findings) {
       makeTodo({
         who: "worker",
         title: "Use strengths and preferences proactively",
-        detail: "Build supports around the participant’s existing interests, strengths, and familiar routines.",
+        detail:
+          "Build supports around the participant’s existing interests, strengths, and familiar routines.",
         frequency: "Weekly review",
         reason: "Preference and strengths signals found.",
         source: "theraa_nurse",
@@ -287,7 +397,8 @@ function generateWorkerTodos(findings) {
       makeTodo({
         who: "worker",
         title: "Record medication prompting and concerns",
-        detail: "Document prompting, refusals, side effects, and escalation actions within role scope.",
+        detail:
+          "Document prompting, refusals, side effects, and escalation actions within role scope.",
         frequency: "As applicable",
         reason: medsFlags.join("; "),
         source: "theraa_nurse",
@@ -307,7 +418,8 @@ function generateClientTodos(findings) {
     makeTodo({
       who: "client",
       title: "Follow a meaningful daily structure",
-      detail: "Use a simple routine that includes meals, rest, movement, and one enjoyable activity.",
+      detail:
+        "Use a simple routine that includes meals, rest, movement, and one enjoyable activity.",
       frequency: "Daily",
       reason: "Supports purpose and stability.",
       source: "theraa_nurse",
@@ -327,12 +439,16 @@ function generateClientTodos(findings) {
     );
   }
 
-  if (goals.some((g) => lower(g).includes("mobility")) || risks.some((r) => lower(r).includes("falls"))) {
+  if (
+    goals.some((g) => lower(g).includes("mobility")) ||
+    risks.some((r) => lower(r).includes("falls"))
+  ) {
     t.push(
       makeTodo({
         who: "client",
         title: "Gentle movement routine",
-        detail: "Engage in supported walking, stretching, or movement activity suited to ability.",
+        detail:
+          "Engage in supported walking, stretching, or movement activity suited to ability.",
         frequency: "3–5 times weekly",
         reason: "Mobility / falls theme identified.",
         source: "theraa_nurse",
@@ -345,7 +461,8 @@ function generateClientTodos(findings) {
       makeTodo({
         who: "client",
         title: "Build one future-focused habit",
-        detail: "Work on one simple weekly goal related to productivity, life planning, or routine ownership.",
+        detail:
+          "Work on one simple weekly goal related to productivity, life planning, or routine ownership.",
         frequency: "Weekly",
         reason: "Future-direction goal identified.",
         source: "theraa_nurse",
@@ -359,22 +476,25 @@ function generateClientTodos(findings) {
 /* -------------------------------------------------------
    Main generator
 -------------------------------------------------------- */
-
 export function generateCarePlanDraft({
   client,
   findings,
   recentSessions = [],
   existingPlan = null,
-  documentIntelligence = null,
-}) {
+  documentIntelligence = [],
+} = {}) {
   const existing = ensureSuggestionsShape(existingPlan || {});
   const clientName = client?.name || "Client";
 
-  const shortGoals = safeArray(findings?.goals).slice(0, 3);
-  const longGoals = safeArray(findings?.goals).slice(3);
-  const risks = safeArray(findings?.risks);
-  const prefs = safeArray(findings?.preferences);
-  const triggers = safeArray(findings?.triggers);
+  const safeFindings = findings || {};
+  const safeSessions = safeArray(recentSessions);
+  const safeDocs = safeArray(documentIntelligence);
+
+  const shortGoals = safeArray(safeFindings.goals).slice(0, 3);
+  const longGoals = safeArray(safeFindings.goals).slice(3);
+  const risks = safeArray(safeFindings.risks);
+  const prefs = safeArray(safeFindings.preferences);
+  const triggers = safeArray(safeFindings.triggers);
 
   const goalsShortText =
     joinBullets(shortGoals) ||
@@ -390,7 +510,7 @@ export function generateCarePlanDraft({
     joinBullets([
       ...(risks.length ? risks : ["Identify and document current risks and supports"]),
       ...(triggers.length ? [`Triggers to monitor: ${triggers.join(", ")}`] : []),
-      `Overall risk level: ${findings?.riskLevel || "Unknown"}`,
+      `Overall risk level: ${safeFindings.riskLevel || "Unknown"}`,
     ]) || existing.risks;
 
   const communicationText =
@@ -407,8 +527,8 @@ export function generateCarePlanDraft({
       "Provide person-centred, strengths-based support.",
       "Support routines, purpose, wellbeing, and safe participation.",
       "Document supports delivered and outcomes.",
-      recentSessions?.length
-        ? `Recent sessions available: ${recentSessions.length}. Review for trends.`
+      safeSessions.length
+        ? `Recent sessions available: ${safeSessions.length}. Review for trends.`
         : "Begin consistent session logging to strengthen evidence.",
     ]);
 
@@ -420,24 +540,21 @@ export function generateCarePlanDraft({
       "Escalate safety concerns according to policy.",
     ]);
 
-  const baseWorker = generateWorkerTodos(findings);
-  const baseClient = generateClientTodos(findings);
+  const baseWorker = generateWorkerTodos(safeFindings);
+  const baseClient = generateClientTodos(safeFindings);
 
-  const runningSource = buildRunningSourcePlan({
-    client,
-    findings,
-    existingPlan: existing,
-    recentSessions,
-    documentIntelligence,
-  });
+  const runningSource =
+    buildRunningSourcePlan({
+      client,
+      findings: safeFindings,
+      existingPlan: existing,
+      recentSessions: safeSessions,
+      documentIntelligence: safeDocs,
+    }) || {};
 
   const pendingTodoStrings = {
-    worker: uniq([
-      ...safeArray(runningSource?.todos?.worker),
-    ]),
-    client: uniq([
-      ...safeArray(runningSource?.todos?.client),
-    ]),
+    worker: uniq(safeArray(runningSource?.todos?.worker)),
+    client: uniq(safeArray(runningSource?.todos?.client)),
   };
 
   const generated = ensureSuggestionsShape({
@@ -462,8 +579,7 @@ export function generateCarePlanDraft({
       legalEthical: runningSource?.sections?.legalEthical || legalEthicalText,
     },
 
-    runningSource: runningSource.runningSource,
-
+    runningSource: runningSource.runningSource || {},
     todos: pendingTodoStrings,
 
     suggestionsGeneratedAt: new Date().toISOString(),
