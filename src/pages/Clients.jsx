@@ -31,6 +31,69 @@ function labelText(field) {
   return labels[field] || field;
 }
 
+function ParticipantCard({ client, onDelete }) {
+  return (
+    <div className="participant-card-pro">
+      <div className="participant-card-top">
+        <div className="participant-card-avatar">
+          {client.name?.charAt(0)?.toUpperCase() || "P"}
+        </div>
+
+        <div>
+          <div className="participant-card-name">{client.name}</div>
+          <div className="participant-card-status">Active Participant</div>
+        </div>
+      </div>
+
+      <div className="participant-card-grid">
+        <div>
+          <span>Age</span>
+          <strong>{client.age || "—"}</strong>
+        </div>
+
+        <div>
+          <span>Gender</span>
+          <strong>{client.gender || "—"}</strong>
+        </div>
+
+        <div>
+          <span>NDIS</span>
+          <strong>{client.ndisNumber || "—"}</strong>
+        </div>
+
+        <div>
+          <span>Contact</span>
+          <strong>{client.contactNumber || "—"}</strong>
+        </div>
+      </div>
+
+      {client.notes ? (
+        <div className="participant-card-notes">
+          <strong>Support Notes</strong>
+          <p>{client.notes}</p>
+        </div>
+      ) : null}
+
+      <div className="participant-card-footer">
+        <small>
+          Last updated:{" "}
+          {client.updatedAt
+            ? new Date(client.updatedAt).toLocaleString()
+            : "—"}
+        </small>
+
+        <button
+          type="button"
+          className="btn-danger-soft"
+          onClick={() => onDelete(client.id)}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Clients() {
   const { user } = useAuth();
   const [form, setForm] = useState(emptyForm);
@@ -63,8 +126,6 @@ export default function Clients() {
   }
 
   function handleDeleteClient(clientId) {
-    if (!user?.id) return;
-
     const confirmed = window.confirm("Delete this participant?");
     if (!confirmed) return;
 
@@ -73,104 +134,90 @@ export default function Clients() {
   }
 
   return (
-    <div className="zone-page">
-      <div className="page-header">
+    <div className="zone-page participants-page">
+      <div className="participants-hero">
         <div>
-          <h1 className="page-title">Participants</h1>
-          <p className="page-subtitle">
-            Only participants created under this logged-in account are visible.
+          <div className="eyebrow">Participant Management</div>
+          <h1>Participants</h1>
+          <p>
+            Create and manage secure participant records for purpose-centred
+            support coordination and care planning.
           </p>
+        </div>
+
+        <div className="participants-count-card">
+          <div className="count-number">{clients.length}</div>
+          <div className="count-label">Participants</div>
+          <small>Owned by this account</small>
         </div>
       </div>
 
-      <div className="two-column">
-        <div className="card">
+      <div className="two-column participants-layout">
+        <div className="card premium-card">
           <div className="card-title">Add Participant</div>
           <div className="card-subtitle">
-            Create a secure participant record owned by your login.
+            Add a participant record linked only to this logged-in account.
           </div>
 
-          {Object.keys(emptyForm).map((field) => (
-            <label
-              key={field}
-              className="section-title-sm"
-              style={{ display: "block", marginTop: 10 }}
-            >
-              {labelText(field)}
-              {field === "notes" ? (
-                <textarea
-                  className="textarea"
-                  rows={4}
-                  value={form[field]}
-                  onChange={(e) => updateField(field, e.target.value)}
-                />
-              ) : (
-                <input
-                  className="input"
-                  value={form[field]}
-                  onChange={(e) => updateField(field, e.target.value)}
-                />
-              )}
-            </label>
-          ))}
+          <div className="form-grid-pro">
+            {Object.keys(emptyForm).map((field) => (
+              <label
+                key={field}
+                className={field === "notes" || field === "address" ? "form-wide" : ""}
+              >
+                <span>{labelText(field)}</span>
+
+                {field === "notes" || field === "address" ? (
+                  <textarea
+                    className="textarea"
+                    rows={field === "notes" ? 4 : 3}
+                    value={form[field]}
+                    onChange={(e) => updateField(field, e.target.value)}
+                  />
+                ) : (
+                  <input
+                    className="input"
+                    value={form[field]}
+                    onChange={(e) => updateField(field, e.target.value)}
+                  />
+                )}
+              </label>
+            ))}
+          </div>
 
           <button
             type="button"
-            className="btn-primary"
-            style={{ marginTop: 12 }}
+            className="btn-primary btn-wide"
             onClick={handleAddClient}
           >
             Save Participant
           </button>
         </div>
 
-        <div className="card">
-          <div className="card-title">My Participants</div>
-          <div className="card-subtitle">
-            Account owner: {user?.email || "Not logged in"}
+        <div className="card premium-card">
+          <div className="section-heading-row">
+            <div>
+              <div className="card-title">My Participants</div>
+              <div className="card-subtitle">
+                Visible only to: {user?.email || "Not logged in"}
+              </div>
+            </div>
           </div>
 
           {clients.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#64748b" }}>
-              No participants yet for this account.
-            </p>
+            <div className="empty-state">
+              <div className="empty-icon">👥</div>
+              <div>No participants yet.</div>
+              <small>Add your first participant using the form.</small>
+            </div>
           ) : (
-            <div style={{ display: "grid", gap: 10 }}>
+            <div className="participant-card-list">
               {clients.map((client) => (
-                <div
+                <ParticipantCard
                   key={client.id}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 14,
-                    padding: 14,
-                    background: "#ffffff",
-                  }}
-                >
-                  <div style={{ fontWeight: 800 }}>{client.name}</div>
-
-                  <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
-                    Age: {client.age || "—"} | NDIS:{" "}
-                    {client.ndisNumber || "—"}
-                  </div>
-
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                    Last updated:{" "}
-                    {client.updatedAt
-                      ? new Date(client.updatedAt).toLocaleString()
-                      : "—"}
-                  </div>
-
-                  <div style={{ marginTop: 10 }}>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      style={{ background: "#b91c1c" }}
-                      onClick={() => handleDeleteClient(client.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                  client={client}
+                  onDelete={handleDeleteClient}
+                />
               ))}
             </div>
           )}
