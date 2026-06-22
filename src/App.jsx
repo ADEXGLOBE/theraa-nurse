@@ -13,6 +13,7 @@ import Clients from "./pages/Clients";
 import ClientInsights from "./pages/ClientInsights";
 import HomeDashboard from "./pages/HomeDashboard";
 import AuthPage from "./pages/AuthPage";
+import KnowledgeEngine from "./pages/KnowledgeEngine";
 
 import { ActiveClientProvider } from "./context/ActiveClientContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -43,6 +44,8 @@ function AppShell() {
         return <VpnZone />;
       case "paramedic":
         return <ParamedicZone />;
+      case "Knowledge":
+        return <KnowledgeEngine />;
       default:
         return <HomeDashboard />;
     }

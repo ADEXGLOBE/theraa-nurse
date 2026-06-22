@@ -1230,3 +1230,52 @@ select {
     justify-self: flex-start;
   }
 }
+.knowledge-page {
+  padding-bottom: 40px;
+}
+
+.knowledge-hero {
+  background: linear-gradient(135deg, #4c1d95 0%, #0f172a 55%, #020617 100%);
+  color: white;
+  border-radius: 24px;
+  padding: 28px;
+  margin-bottom: 18px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+}
+
+.knowledge-hero h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+
+.knowledge-hero p {
+  margin: 0;
+  color: #cbd5e1;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.knowledge-textarea {
+  min-height: 260px;
+  margin-top: 12px;
+}
+
+.knowledge-run {
+  width: 100%;
+  margin: 16px 0;
+  padding: 14px;
+  font-size: 15px;
+}
+
+.knowledge-result pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 16px;
+}
