@@ -11,11 +11,22 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    async function loadSession() {
+      const { data, error } = await supabase.auth.getSession();
+
       if (!mounted) return;
-      setUser(data?.session?.user || null);
+
+      if (error) {
+        console.error("Failed to get session", error);
+        setUser(null);
+      } else {
+        setUser(data?.session?.user || null);
+      }
+
       setAuthReady(true);
-    });
+    }
+
+    loadSession();
 
     const {
       data: { subscription },
@@ -32,6 +43,7 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut();
+    setUser(null);
   }
 
   return (
@@ -40,6 +52,8 @@ export function AuthProvider({ children }) {
         user,
         authReady,
         signOut,
+        userId: user?.id || null,
+        userEmail: user?.email || null,
       }}
     >
       {children}
@@ -49,8 +63,10 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
+
   if (!ctx) {
     throw new Error("useAuth must be used inside AuthProvider");
   }
+
   return ctx;
 }

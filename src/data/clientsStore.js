@@ -21,35 +21,39 @@ function uid() {
   return `client-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function loadClients(ownerId = null) {
+export function loadClients(ownerId) {
+  if (!ownerId) return [];
   const all = loadAllClients();
-  if (!ownerId) return all;
   return all.filter((c) => c.ownerId === ownerId);
 }
 
-export function loadClientById(clientId, ownerId = null) {
-  const all = loadClients(ownerId);
-  return all.find((c) => c.id === clientId) || null;
+export function loadClientById(clientId, ownerId) {
+  if (!ownerId || !clientId) return null;
+  return loadClients(ownerId).find((c) => c.id === clientId) || null;
 }
 
 export function saveClient(client, ownerId) {
-  if (!ownerId) {
-    throw new Error("ownerId is required to save a client.");
-  }
+  if (!ownerId) throw new Error("ownerId is required to save a client.");
 
   const all = loadAllClients();
+  const now = new Date().toISOString();
 
   if (client?.id) {
-    const updated = all.map((c) =>
-      c.id === client.id
-        ? {
-            ...c,
-            ...client,
-            ownerId,
-            updatedAt: new Date().toISOString(),
-          }
-        : c
-    );
+    const updated = all.map((c) => {
+      if (c.id !== client.id) return c;
+
+      if (c.ownerId !== ownerId) {
+        throw new Error("You cannot edit a client owned by another user.");
+      }
+
+      return {
+        ...c,
+        ...client,
+        ownerId,
+        updatedAt: now,
+      };
+    });
+
     saveAllClients(updated);
     return client.id;
   }
@@ -66,24 +70,29 @@ export function saveClient(client, ownerId) {
     emergencyContact: client?.emergencyContact || "",
     address: client?.address || "",
     notes: client?.notes || "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 
   saveAllClients([newClient, ...all]);
   return newClient.id;
 }
 
-export function deleteClient(clientId, ownerId = null) {
+export function deleteClient(clientId, ownerId) {
+  if (!ownerId || !clientId) return;
+
   const all = loadAllClients();
-  const filtered = all.filter((c) =>
-    ownerId ? !(c.id === clientId && c.ownerId === ownerId) : c.id !== clientId
+  const filtered = all.filter(
+    (c) => !(c.id === clientId && c.ownerId === ownerId)
   );
+
   saveAllClients(filtered);
 }
 
 export function clientBelongsToUser(clientId, ownerId) {
-  if (!ownerId) return false;
-  const client = loadClientById(clientId, ownerId);
-  return !!client;
+  return !!loadClientById(clientId, ownerId);
+}
+
+export function getClientCount(ownerId) {
+  return loadClients(ownerId).length;
 }
