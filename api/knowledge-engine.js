@@ -11,6 +11,7 @@ export default async function handler(req, res) {
     if (!apiKey) {
       return res.status(500).json({
         error: "OPENAI_API_KEY is missing on the server.",
+        fix: "Check Vercel Environment Variables and redeploy.",
       });
     }
 
@@ -29,9 +30,8 @@ export default async function handler(req, res) {
       input: `
 You are Theraa Nurse Knowledge Engine.
 
-You support NDIS, disability, aged care and support coordination planning.
-You do not diagnose, prescribe, or replace clinicians.
-You generate safe, practical, purpose-centred recommendations based only on supplied evidence and knowledge.
+Generate safe, practical, purpose-centred, NDIS-friendly support recommendations.
+Do not diagnose, prescribe, or replace clinicians.
 
 REQUEST TYPE:
 ${requestType}
@@ -48,8 +48,7 @@ ${evidence || "No participant evidence supplied."}
 GLOBAL STRUCTURED CARE KNOWLEDGE:
 ${knowledge || "No structured care knowledge supplied."}
 
-Return a practical output with these headings:
-
+Return:
 1. Participant Summary
 2. Evidence-Based Risks
 3. Purpose-Centred Goals
@@ -58,17 +57,13 @@ Return a practical output with these headings:
 6. Knowledge Base Considerations
 7. Escalation / Referral Suggestions
 8. Evidence Used
-
-Keep it professional, NDIS-friendly and scope-safe.
 `,
     });
 
     return res.status(200).json({
-      result: response.output_text || "",
+      result: response.output_text || "No output returned.",
     });
   } catch (error) {
-    console.error("Knowledge Engine error:", error);
-
     return res.status(500).json({
       error: "Knowledge Engine failed.",
       details: error?.message || String(error),

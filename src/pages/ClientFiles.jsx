@@ -1,64 +1,11 @@
-// src/pages/ClientFiles.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { loadClients } from "../data/clientsStore";
-import { listDocumentsForClient } from "../features/documents/documentService";
-
-function getDocIcon(type = "") {
-  const t = String(type).toLowerCase();
-  if (t.includes("pdf")) return "📕";
-  if (t.includes("word") || t.includes("doc")) return "📘";
-  if (t.includes("image") || t.includes("png") || t.includes("jpg")) return "🖼️";
-  if (t.includes("text") || t.includes("txt")) return "📄";
-  return "📎";
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return "—";
-  }
-}
-
-function EvidenceCard({ doc }) {
-  const type = doc?.mimeType || doc?.type || doc?.fileType || "Document";
-  const title = doc?.name || doc?.filename || doc?.title || "Untitled document";
-
-  const extracted =
-    doc?.textContent ||
-    doc?.extractedText ||
-    doc?.text ||
-    doc?.summary ||
-    "";
-
-  return (
-    <div className="evidence-card">
-      <div className="evidence-icon">{getDocIcon(type)}</div>
-
-      <div className="evidence-main">
-        <div className="evidence-title">{title}</div>
-        <div className="evidence-meta">
-          {type} · Uploaded {formatDate(doc?.createdAt)}
-        </div>
-
-        {extracted ? (
-          <div className="evidence-preview">
-            {String(extracted).slice(0, 180)}
-            {String(extracted).length > 180 ? "..." : ""}
-          </div>
-        ) : (
-          <div className="evidence-preview muted">
-            No extracted text yet. This file can still be stored as participant evidence.
-          </div>
-        )}
-      </div>
-
-      <div className="evidence-status">Evidence</div>
-    </div>
-  );
-}
+import {
+  saveDocumentForClient,
+  listDocumentsForClient,
+  deleteDocument,
+} from "../features/documents/documentService";
 
 export default function ClientFiles() {
   const { user } = useAuth();
@@ -66,186 +13,212 @@ export default function ClientFiles() {
   const [clients, setClients] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("Progress Note");
+  const [textContent, setTextContent] = useState("");
+  const [file, setFile] = useState(null);
 
   useEffect(() => {
-    if (!user?.id) {
-      setClients([]);
-      setSelectedClientId("");
-      return;
-    }
+    if (!user?.id) return;
 
     const loaded = loadClients(user.id);
     setClients(loaded);
 
     if (loaded.length > 0) {
-      setSelectedClientId((current) =>
-        loaded.some((c) => c.id === current) ? current : loaded[0].id
-      );
-    } else {
-      setSelectedClientId("");
+      setSelectedClientId(loaded[0].id);
     }
   }, [user?.id]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadDocs() {
-      if (!selectedClientId) {
-        setDocuments([]);
-        return;
-      }
-
-      setLoading(true);
-
-      try {
-        const docs = await listDocumentsForClient(selectedClientId);
-        if (!cancelled) setDocuments(Array.isArray(docs) ? docs : []);
-      } catch (e) {
-        console.error("Failed to load documents", e);
-        if (!cancelled) setDocuments([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadDocs();
-
-    return () => {
-      cancelled = true;
-    };
+    refreshDocuments();
   }, [selectedClientId]);
 
-  const selectedClient = useMemo(
-    () => clients.find((c) => c.id === selectedClientId) || null,
-    [clients, selectedClientId]
-  );
+  async function refreshDocuments() {
+    if (!selectedClientId) {
+      setDocuments([]);
+      return;
+    }
 
-  const evidenceStats = useMemo(() => {
-    const total = documents.length;
-    const withText = documents.filter(
-      (d) => d?.textContent || d?.extractedText || d?.text || d?.summary
-    ).length;
+    const docs = await listDocumentsForClient(selectedClientId, user?.id);
+    setDocuments(docs);
+  }
 
-    return {
-      total,
-      withText,
-      pending: Math.max(0, total - withText),
-    };
-  }, [documents]);
+  async function handleUpload() {
+    if (!selectedClientId) {
+      alert("Please select a participant.");
+      return;
+    }
+
+    if (!file && !textContent.trim()) {
+      alert("Please upload a file or paste document text.");
+      return;
+    }
+
+    await saveDocumentForClient({
+      clientId: selectedClientId,
+      ownerId: user.id,
+      title,
+      category,
+      file,
+      textContent,
+    });
+
+    setTitle("");
+    setTextContent("");
+    setFile(null);
+    await refreshDocuments();
+
+    alert("Document saved to participant evidence.");
+  }
+
+  function handleDelete(id) {
+    if (!window.confirm("Delete this document?")) return;
+    deleteDocument(id, user?.id);
+    refreshDocuments();
+  }
 
   return (
     <div className="zone-page evidence-page">
       <div className="evidence-hero">
         <div>
           <div className="eyebrow">Participant Evidence</div>
-          <h1>Evidence Hub</h1>
+          <h1>Documents & Evidence</h1>
           <p>
-            Store participant documents, session notes and support evidence that feed
-            the Theraa Nurse care engine and future Knowledge Engine.
+            Upload participant documents, progress notes, assessments and support
+            evidence for care plan generation and Knowledge Engine enhancement.
           </p>
         </div>
 
         <div className="evidence-hero-card">
-          <div className="evidence-hero-number">{evidenceStats.total}</div>
+          <div className="evidence-hero-number">{documents.length}</div>
           <div className="evidence-hero-label">Evidence Items</div>
-          <small>{evidenceStats.withText} analysed · {evidenceStats.pending} pending</small>
+          <small>For selected participant</small>
         </div>
       </div>
 
-      <div className="evidence-toolbar">
-        <div>
-          <div className="card-title">Select Participant</div>
+      <div className="two-column">
+        <div className="card premium-card">
+          <div className="card-title">Upload Evidence</div>
           <div className="card-subtitle">
-            Evidence is isolated to the logged-in user account.
+            Supports text files now. For PDFs, paste the extracted content until PDF extraction is added.
           </div>
+
+          <label className="section-title-sm">
+            Participant
+            <select
+              className="input"
+              value={selectedClientId}
+              onChange={(e) => setSelectedClientId(e.target.value)}
+            >
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name} {client.age ? `(${client.age})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="section-title-sm">
+            Document Title
+            <input
+              className="input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. OT Report, Progress Note, Intake Assessment"
+            />
+          </label>
+
+          <label className="section-title-sm">
+            Category
+            <select
+              className="input"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option>Progress Note</option>
+              <option>NDIS Plan</option>
+              <option>Care Plan</option>
+              <option>Risk Assessment</option>
+              <option>Incident Report</option>
+              <option>Allied Health Report</option>
+              <option>Behaviour Support</option>
+              <option>Medication</option>
+              <option>General</option>
+            </select>
+          </label>
+
+          <label className="section-title-sm">
+            Upload File
+            <input
+              className="input"
+              type="file"
+              accept=".txt,.md,.csv,.json,.html,.doc,.docx,.pdf"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+          </label>
+
+          <label className="section-title-sm">
+            Paste Document Text
+            <textarea
+              className="textarea"
+              rows={8}
+              value={textContent}
+              onChange={(e) => setTextContent(e.target.value)}
+              placeholder="Paste document content, progress notes or assessment details here..."
+            />
+          </label>
+
+          <button className="btn-primary btn-wide" onClick={handleUpload}>
+            Save Evidence
+          </button>
         </div>
 
-        <select
-          className="input evidence-select"
-          value={selectedClientId}
-          onChange={(e) => setSelectedClientId(e.target.value)}
-        >
-          {clients.length === 0 ? (
-            <option value="">No participants</option>
+        <div className="card premium-card">
+          <div className="card-title">Saved Evidence</div>
+          <div className="card-subtitle">
+            These documents feed Theraa Nurse care plans and Knowledge Engine.
+          </div>
+
+          {documents.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📄</div>
+              <div>No documents yet.</div>
+              <small>Upload participant evidence to begin.</small>
+            </div>
           ) : (
-            clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name} {client.age ? `(${client.age})` : ""}
-              </option>
-            ))
+            <div className="evidence-list">
+              {documents.map((doc) => (
+                <div className="evidence-card" key={doc.id}>
+                  <div className="evidence-icon">📄</div>
+
+                  <div className="evidence-main">
+                    <div className="evidence-title">{doc.title || doc.name}</div>
+                    <div className="evidence-meta">
+                      {doc.category} · {doc.fileName || "Manual entry"} ·{" "}
+                      {new Date(doc.createdAt).toLocaleString()}
+                    </div>
+
+                    <div className="evidence-preview">
+                      {(doc.textContent || doc.extractedText || doc.text || "")
+                        .slice(0, 220)}
+                      {(doc.textContent || doc.extractedText || doc.text || "")
+                        .length > 220
+                        ? "..."
+                        : ""}
+                    </div>
+                  </div>
+
+                  <button
+                    className="btn-danger-soft"
+                    onClick={() => handleDelete(doc.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-        </select>
-      </div>
-
-      <div className="metric-grid evidence-metrics">
-        <div className="metric-card">
-          <div className="metric-icon">📚</div>
-          <div>
-            <div className="metric-value">{evidenceStats.total}</div>
-            <div className="metric-title">Total Evidence</div>
-            <div className="metric-subtitle">For selected participant</div>
-          </div>
         </div>
-
-        <div className="metric-card">
-          <div className="metric-icon">🧠</div>
-          <div>
-            <div className="metric-value">{evidenceStats.withText}</div>
-            <div className="metric-title">Analysed</div>
-            <div className="metric-subtitle">Ready for care engine</div>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-icon">⏳</div>
-          <div>
-            <div className="metric-value">{evidenceStats.pending}</div>
-            <div className="metric-title">Pending</div>
-            <div className="metric-subtitle">Awaiting extraction</div>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-icon">🌟</div>
-          <div>
-            <div className="metric-value">KB</div>
-            <div className="metric-title">Knowledge Engine</div>
-            <div className="metric-subtitle">Coming next</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card premium-card">
-        <div className="section-heading-row">
-          <div>
-            <div className="card-title">
-              {selectedClient ? `${selectedClient.name}'s Evidence` : "Evidence"}
-            </div>
-            <div className="card-subtitle">
-              Documents here become the intelligence source for support coordination.
-            </div>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="empty-state">
-            <div className="empty-icon">⏳</div>
-            <div>Loading evidence...</div>
-          </div>
-        ) : documents.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📄</div>
-            <div>No evidence uploaded yet.</div>
-            <small>Upload documents from your existing document workflow.</small>
-          </div>
-        ) : (
-          <div className="evidence-list">
-            {documents.map((doc, index) => (
-              <EvidenceCard key={doc?.id || index} doc={doc} />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
