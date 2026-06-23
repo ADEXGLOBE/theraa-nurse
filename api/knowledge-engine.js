@@ -1,20 +1,20 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
       return res.status(500).json({
         error: "OPENAI_API_KEY is missing on the server.",
       });
     }
+
+    const openai = new OpenAI({ apiKey });
 
     const {
       participant = {},
@@ -25,16 +25,14 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        {
-          role: "system",
-          content:
-            "You are Theraa Nurse Knowledge Engine. You support NDIS, disability, aged care and support coordination planning. You do not diagnose, prescribe, or replace clinicians. You generate safe, practical, purpose-centred recommendations based only on supplied evidence and knowledge.",
-        },
-        {
-          role: "user",
-          content: `
+      model: "gpt-4o-mini",
+      input: `
+You are Theraa Nurse Knowledge Engine.
+
+You support NDIS, disability, aged care and support coordination planning.
+You do not diagnose, prescribe, or replace clinicians.
+You generate safe, practical, purpose-centred recommendations based only on supplied evidence and knowledge.
+
 REQUEST TYPE:
 ${requestType}
 
@@ -63,8 +61,6 @@ Return a practical output with these headings:
 
 Keep it professional, NDIS-friendly and scope-safe.
 `,
-        },
-      ],
     });
 
     return res.status(200).json({
@@ -72,6 +68,7 @@ Keep it professional, NDIS-friendly and scope-safe.
     });
   } catch (error) {
     console.error("Knowledge Engine error:", error);
+
     return res.status(500).json({
       error: "Knowledge Engine failed.",
       details: error?.message || String(error),
