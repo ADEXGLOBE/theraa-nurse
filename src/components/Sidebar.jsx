@@ -13,6 +13,7 @@ const navItems = [
   { key: "paramedic", label: "Paramedic", icon: "🚑" },
   { key: "vpn", label: "Remote Support", icon: "🔐" },
   { key: "knowledge", label: "Knowledge Engine", icon: "🤖" },
+  { key: "timeline", label: "Timeline", icon: "🕒" },
 ];
 
 export default function Sidebar({ selectedZone, setSelectedZone }) {

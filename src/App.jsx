@@ -14,6 +14,7 @@ import ClientInsights from "./pages/ClientInsights";
 import HomeDashboard from "./pages/HomeDashboard";
 import AuthPage from "./pages/AuthPage";
 import KnowledgeEngine from "./pages/KnowledgeEngine";
+import ParticipantTimeline from "./pages/ParticipantTimeline";
 
 import { ActiveClientProvider } from "./context/ActiveClientContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -32,6 +33,8 @@ function AppShell() {
         return <ClientFiles />;
       case "insights":
         return <ClientInsights />;
+      case "timeline":
+        return <ParticipantTimeline />;
       case "careplan":
         return <CarePlanZone />;
       case "therapy":

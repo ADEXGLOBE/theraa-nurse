@@ -1574,3 +1574,120 @@ select {
     width: 100%;
   }
 }
+.timeline-page-pro {
+  padding-bottom: 44px;
+}
+
+.timeline-hero-pro {
+  background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 55%, #020617 100%);
+  color: white;
+  border-radius: 24px;
+  padding: 28px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+}
+
+.timeline-hero-pro h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+
+.timeline-hero-pro p {
+  margin: 0;
+  color: #cbd5e1;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.timeline-stat-card-pro {
+  min-width: 200px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  padding: 18px;
+  text-align: center;
+}
+
+.timeline-stat-number-pro {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.timeline-stat-label-pro {
+  margin-top: 4px;
+  font-weight: 800;
+}
+
+.timeline-stat-card-pro small {
+  display: block;
+  margin-top: 4px;
+  color: #cbd5e1;
+}
+
+.timeline-list-pro {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.timeline-item-pro {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.timeline-dot-pro {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: #eef2ff;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.timeline-content-pro {
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
+}
+
+.timeline-title-pro {
+  font-size: 14px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.timeline-meta-pro {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.timeline-content-pro p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+@media (max-width: 900px) {
+  .timeline-hero-pro {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timeline-stat-card-pro {
+    width: 100%;
+  }
+}

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-const client = new OpenAI({
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
@@ -10,39 +10,58 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { participant, evidence = "", knowledge = "", requestType = "care_plan" } = req.body || {};
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({
+        error: "OPENAI_API_KEY is missing on the server.",
+      });
+    }
 
-    const response = await client.responses.create({
+    const {
+      participant = {},
+      evidence = "",
+      knowledge = "",
+      currentPlan = {},
+      requestType = "enhance_care_plan",
+    } = req.body || {};
+
+    const response = await openai.responses.create({
       model: "gpt-4.1-mini",
       input: [
         {
           role: "system",
           content:
-            "You are Theraa Nurse Knowledge Engine. Generate safe, purpose-centred, NDIS-aligned support coordination recommendations. Do not diagnose. Do not give medical instructions. Recommend escalation to qualified professionals where needed.",
+            "You are Theraa Nurse Knowledge Engine. You support NDIS, disability, aged care and support coordination planning. You do not diagnose, prescribe, or replace clinicians. You generate safe, practical, purpose-centred recommendations based only on supplied evidence and knowledge.",
         },
         {
           role: "user",
           content: `
-Participant:
-${JSON.stringify(participant || {}, null, 2)}
-
-Participant Evidence:
-${evidence}
-
-Structured Care Knowledge:
-${knowledge}
-
-Request Type:
+REQUEST TYPE:
 ${requestType}
 
-Return:
-1. Participant summary
-2. Key risks
-3. Purpose-centred goals
-4. Support worker actions
-5. Support coordinator actions
-6. Escalation/referral suggestions
-7. Evidence used
+PARTICIPANT PROFILE:
+${JSON.stringify(participant, null, 2)}
+
+CURRENT CARE PLAN:
+${JSON.stringify(currentPlan, null, 2)}
+
+PARTICIPANT EVIDENCE:
+${evidence || "No participant evidence supplied."}
+
+GLOBAL STRUCTURED CARE KNOWLEDGE:
+${knowledge || "No structured care knowledge supplied."}
+
+Return a practical output with these headings:
+
+1. Participant Summary
+2. Evidence-Based Risks
+3. Purpose-Centred Goals
+4. Support Worker Actions
+5. Support Coordinator Actions
+6. Knowledge Base Considerations
+7. Escalation / Referral Suggestions
+8. Evidence Used
+
+Keep it professional, NDIS-friendly and scope-safe.
 `,
         },
       ],
@@ -53,6 +72,9 @@ Return:
     });
   } catch (error) {
     console.error("Knowledge Engine error:", error);
-    return res.status(500).json({ error: "Knowledge Engine failed." });
+    return res.status(500).json({
+      error: "Knowledge Engine failed.",
+      details: error?.message || String(error),
+    });
   }
 }
