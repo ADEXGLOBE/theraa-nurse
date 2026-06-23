@@ -17,6 +17,7 @@ import {
 import { loadSessions } from "../data/sessionStore";
 import { useAuth } from "../context/AuthContext";
 import { buildDraftFromEvidence } from "../engines/careEngine";
+import { getKnowledgeContext } from "../data/knowledgeBaseStore";
 
 /**
  * CarePlanZone
@@ -212,7 +213,7 @@ function normalizePlan(planLike) {
 
 function Card({ title, subtitle, children, right }) {
   return (
-    <div className="card">
+    <div className="card careplan-section-card">
       <div
         style={{
           display: "flex",
@@ -256,7 +257,9 @@ export default function CarePlanZone() {
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [activePlan, setActivePlan] = useState(normalizePlan(EMPTY_PLAN()));
   const [isBuilding, setIsBuilding] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const [lastBuildInfo, setLastBuildInfo] = useState("");
+  const [knowledgeOutput, setKnowledgeOutput] = useState("");
 
   useEffect(() => {
     if (!selectedClientId && clients.length > 0) {
@@ -530,6 +533,100 @@ export default function CarePlanZone() {
     }
   }
 
+  async function enhanceWithKnowledgeEngine() {
+    setIsEnhancing(true);
+    setKnowledgeOutput("");
+
+    try {
+      const docs = await listDocumentsForClient(client.id);
+      const documentIntelligence = await buildClientDocumentIntelligence(client.id);
+      const sessionsMap = loadSessions(user?.id);
+      const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
+      const knowledge = getKnowledgeContext();
+
+      const documentSummary = asArray(docs)
+        .map((doc, index) => {
+          const title =
+            doc?.name ||
+            doc?.filename ||
+            doc?.title ||
+            doc?.fileName ||
+            `Document ${index + 1}`;
+          const text =
+            doc?.textContent ||
+            doc?.extractedText ||
+            doc?.text ||
+            doc?.summary ||
+            "";
+          return `${title}\n${String(text).slice(0, 1800)}`;
+        })
+        .join("\n\n---\n\n");
+
+      const evidence = [
+        `Current participant:\n${JSON.stringify(client || {}, null, 2)}`,
+        `Current care plan sections:\n${JSON.stringify(activePlan?.sections || {}, null, 2)}`,
+        `Current approved actions:\n${JSON.stringify(activePlan?.approvals || {}, null, 2)}`,
+        `Document intelligence:\n${JSON.stringify(documentIntelligence || {}, null, 2)}`,
+        `Recent sessions:\n${JSON.stringify(recentSessions || [], null, 2)}`,
+        `Uploaded document extracts:\n${documentSummary || "No document extracts available."}`,
+      ].join("\n\n====================\n\n");
+
+      if (!knowledge || !String(knowledge).trim()) {
+        const proceed = window.confirm(
+          "No global Knowledge Engine documents found yet. Continue with participant evidence only?"
+        );
+        if (!proceed) return;
+      }
+
+      const res = await fetch("/api/knowledge-engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participant: client,
+          evidence,
+          knowledge,
+          requestType: "enhance_care_plan",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Knowledge Engine request failed.");
+      }
+
+      const result = data?.result || "";
+      setKnowledgeOutput(result);
+
+      setActivePlan((prev) => {
+        const p = normalizePlan(prev);
+        const existingReview = p.sections?.monitoringReview || "";
+        const nextReview = [
+          existingReview,
+          "Theraa Nurse Knowledge Engine Recommendations:",
+          result,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        return normalizePlan({
+          ...p,
+          sections: {
+            ...(p.sections || {}),
+            monitoringReview: nextReview,
+          },
+        });
+      });
+
+      alert("Knowledge Engine enhancement completed and added to Monitoring & Review.");
+    } catch (e) {
+      console.error(e);
+      alert("Knowledge Engine failed. Check console and confirm OPENAI_API_KEY is set in Vercel.");
+    } finally {
+      setIsEnhancing(false);
+    }
+  }
+
   function saveVersion(status) {
     const plan = normalizePlan(activePlan);
 
@@ -622,13 +719,29 @@ export default function CarePlanZone() {
   const purposeCards = asArray(activePlan?.runningSource?.purposeCards);
 
   return (
-    <div className="zone-page">
-      <div className="zone-header">
-        <h2>Care Plan</h2>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
-          Sectioned · Versioned · Running Source · Suggestions + Approvals · PDF Export
-        </div>
+  <div className="zone-page careplan-pro-page">
+    <div className="careplan-hero">
+      <div>
+        <div className="eyebrow">Purpose Plans</div>
+        <h1>Care Plan Builder</h1>
+        <p>
+          Generate, review and optimise purpose-centred care plans from participant
+          evidence, session notes, documents and Theraa Nurse intelligence.
+        </p>
       </div>
+
+      <div className="careplan-hero-card">
+        <div className="careplan-score">
+          {purposeCards.length > 0 ? `${Math.min(100, 60 + purposeCards.length * 10)}%` : "—"}
+        </div>
+        <div className="careplan-score-label">Purpose Readiness</div>
+        <small>
+          {versions.length} version{versions.length === 1 ? "" : "s"} ·{" "}
+          {approvedWorker.length + approvedClient.length} approved action
+          {approvedWorker.length + approvedClient.length === 1 ? "" : "s"}
+        </small>
+      </div>
+    </div>
 
       <Card
         title="Client & Versions"
@@ -705,6 +818,15 @@ export default function CarePlanZone() {
               >
                 {isBuilding ? "⏳ Building…" : "🧠 Refresh Draft from Docs + Notes"}
               </button>
+
+              <button
+                className="btn-primary"
+                style={{ background: "#6d28d9" }}
+                onClick={enhanceWithKnowledgeEngine}
+                disabled={isEnhancing}
+              >
+                {isEnhancing ? "⏳ Enhancing…" : "🤖 Enhance with Knowledge Engine"}
+              </button>
               {lastBuildInfo ? (
                 <div style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
                   {lastBuildInfo}
@@ -715,6 +837,15 @@ export default function CarePlanZone() {
         </div>
       </Card>
 
+      {knowledgeOutput ? (
+        <Card
+          title="Theraa Nurse Knowledge Engine Output"
+          subtitle="LLM-enhanced care-plan recommendations using participant evidence and the global care knowledge library."
+        >
+          <pre className="knowledge-preview-output">{knowledgeOutput}</pre>
+        </Card>
+      ) : null}
+
       {purposeCards.length > 0 ? (
         <Card
           title="Running Source – Purpose Plans"
@@ -722,27 +853,21 @@ export default function CarePlanZone() {
         >
           <div style={{ display: "grid", gap: 8 }}>
             {purposeCards.map((card, index) => (
-              <div
-                key={card.id || `${card.title}-${index}`}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "#fafafc",
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>{card.title}</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+              <div key={card.id || `${card.title}-${index}`} className="purpose-card-pro">
+                <div className="purpose-card-title">{card.title}</div>
+                <div className="purpose-card-meta">
                   Domain: {card.domain || "General"} · Frequency: {card.frequency || "As planned"}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 13 }}>
-                  <strong>Why it matters:</strong> {card.whyItMatters || "—"}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13 }}>
-                  <strong>Participant action:</strong> {card.participantAction || "—"}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13 }}>
-                  <strong>Worker action:</strong> {card.workerAction || "—"}
+                <div className="purpose-card-body">
+                  <div>
+                    <strong>Why it matters:</strong> {card.whyItMatters || "—"}
+                  </div>
+                  <div>
+                    <strong>Participant action:</strong> {card.participantAction || "—"}
+                  </div>
+                  <div>
+                    <strong>Worker action:</strong> {card.workerAction || "—"}
+                  </div>
                 </div>
               </div>
             ))}

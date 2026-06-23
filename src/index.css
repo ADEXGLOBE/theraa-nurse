@@ -1279,3 +1279,298 @@ select {
   border-radius: 16px;
   padding: 16px;
 }
+.knowledge-page {
+  padding-bottom: 40px;
+}
+
+.knowledge-hero {
+  background: linear-gradient(135deg, #4c1d95 0%, #0f172a 55%, #020617 100%);
+  color: white;
+  border-radius: 24px;
+  padding: 28px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+}
+
+.knowledge-hero h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+
+.knowledge-hero p {
+  margin: 0;
+  color: #cbd5e1;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.knowledge-stat-card {
+  min-width: 210px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  padding: 18px;
+  text-align: center;
+  backdrop-filter: blur(10px);
+}
+
+.knowledge-stat-number {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.knowledge-stat-label {
+  margin-top: 4px;
+  font-weight: 800;
+}
+
+.knowledge-stat-card small {
+  display: block;
+  margin-top: 4px;
+  color: #cbd5e1;
+}
+
+.knowledge-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.knowledge-form-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.knowledge-form-grid label span {
+  font-size: 12px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.knowledge-form-grid small {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.knowledge-textarea {
+  min-height: 240px;
+  margin-top: 8px;
+}
+
+.knowledge-list {
+  display: grid;
+  gap: 12px;
+  max-height: 660px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.knowledge-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 14px;
+  background: #ffffff;
+  display: grid;
+  gap: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
+}
+
+.knowledge-card-title {
+  font-size: 14px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.knowledge-card-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.knowledge-card p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.knowledge-run {
+  width: 100%;
+  margin: 14px 0;
+  padding: 14px;
+}
+
+.knowledge-preview-output {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 16px;
+  color: #334155;
+}
+
+@media (max-width: 900px) {
+  .knowledge-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .knowledge-stat-card {
+    width: 100%;
+  }
+
+  .knowledge-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.careplan-pro-page {
+  padding-bottom: 44px;
+}
+
+.careplan-hero {
+  background: linear-gradient(135deg, #0f172a 0%, #134e4a 55%, #020617 100%);
+  color: white;
+  border-radius: 24px;
+  padding: 28px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+}
+
+.careplan-hero h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+
+.careplan-hero p {
+  margin: 0;
+  color: #cbd5e1;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.careplan-hero-card {
+  min-width: 220px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  padding: 18px;
+  text-align: center;
+}
+
+.careplan-score {
+  font-size: 36px;
+  font-weight: 900;
+}
+
+.careplan-score-label {
+  font-weight: 800;
+}
+
+.careplan-actions {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 14px 35px rgba(15, 23, 42, 0.05);
+}
+
+.careplan-btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.careplan-section-card {
+  border-radius: 20px;
+  box-shadow: 0 14px 35px rgba(15, 23, 42, 0.06);
+}
+
+.purpose-card-pro {
+  border: 1px solid #ccfbf1;
+  border-radius: 18px;
+  padding: 16px;
+  background: linear-gradient(180deg, #f0fdfa, #ffffff);
+}
+
+.purpose-card-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.purpose-card-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.purpose-card-body {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.todo-card-pro {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 12px;
+  background: white;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.todo-approved-worker {
+  background: #ecfeff;
+  border-color: #a5f3fc;
+}
+
+.todo-approved-client {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.careplan-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 18px;
+  padding: 22px;
+  text-align: center;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+@media (max-width: 900px) {
+  .careplan-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .careplan-hero-card {
+    width: 100%;
+  }
+}
