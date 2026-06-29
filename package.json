@@ -14,7 +14,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "mammoth": "^1.11.0",
-    "openai": "^6.44.0",
+    "openai": "^6.45.0",
     "pdfjs-dist": "^5.4.530",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
