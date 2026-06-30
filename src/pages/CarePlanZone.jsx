@@ -532,100 +532,122 @@ export default function CarePlanZone() {
       setIsBuilding(false);
     }
   }
+async function enhanceWithKnowledgeEngine() {
+  setIsEnhancing(true);
 
-  async function enhanceWithKnowledgeEngine() {
-    setIsEnhancing(true);
-    setKnowledgeOutput("");
+  try {
+    const docs = await listDocumentsForClient(client.id, user?.id);
 
-    try {
-      const docs = await listDocumentsForClient(client.id);
-      const documentIntelligence = await buildClientDocumentIntelligence(client.id);
-      const sessionsMap = loadSessions(user?.id);
-      const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
-      const knowledge = getKnowledgeContext();
+    const documentIntelligence = await buildClientDocumentIntelligence(
+      client.id,
+      user?.id
+    );
 
-      const documentSummary = asArray(docs)
-        .map((doc, index) => {
-          const title =
-            doc?.name ||
-            doc?.filename ||
-            doc?.title ||
-            doc?.fileName ||
-            `Document ${index + 1}`;
-          const text =
-            doc?.textContent ||
-            doc?.extractedText ||
-            doc?.text ||
-            doc?.summary ||
-            "";
-          return `${title}\n${String(text).slice(0, 1800)}`;
-        })
-        .join("\n\n---\n\n");
+    const evidence = [
+      `Participant: ${client.name || "Unknown"} (${client.age || "age unknown"})`,
+      "",
+      "Current Draft Care Plan:",
+      JSON.stringify(activePlan, null, 2),
+      "",
+      "Participant Document Evidence:",
+      documentIntelligence?.combinedText ||
+        documentIntelligence?.text ||
+        "No extracted document text found.",
+    ].join("\n");
 
-      const evidence = [
-        `Current participant:\n${JSON.stringify(client || {}, null, 2)}`,
-        `Current care plan sections:\n${JSON.stringify(activePlan?.sections || {}, null, 2)}`,
-        `Current approved actions:\n${JSON.stringify(activePlan?.approvals || {}, null, 2)}`,
-        `Document intelligence:\n${JSON.stringify(documentIntelligence || {}, null, 2)}`,
-        `Recent sessions:\n${JSON.stringify(recentSessions || [], null, 2)}`,
-        `Uploaded document extracts:\n${documentSummary || "No document extracts available."}`,
-      ].join("\n\n====================\n\n");
+    const knowledge =
+      typeof getKnowledgeContext === "function" ? getKnowledgeContext() : "";
 
-      if (!knowledge || !String(knowledge).trim()) {
-        const proceed = window.confirm(
-          "No global Knowledge Engine documents found yet. Continue with participant evidence only?"
-        );
-        if (!proceed) return;
-      }
+    const res = await fetch("/api/knowledge-engine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        participant: client,
+        evidence,
+        knowledge,
+        currentPlan: activePlan,
+        requestType: "enhance_care_plan",
+      }),
+    });
 
-      const res = await fetch("/api/knowledge-engine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          participant: client,
-          evidence,
-          knowledge,
-          requestType: "enhance_care_plan",
-        }),
-      });
+    const data = await res.json();
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Knowledge Engine request failed.");
-      }
-
-      const result = data?.result || "";
-      setKnowledgeOutput(result);
-
-      setActivePlan((prev) => {
-        const p = normalizePlan(prev);
-        const existingReview = p.sections?.monitoringReview || "";
-        const nextReview = [
-          existingReview,
-          "Theraa Nurse Knowledge Engine Recommendations:",
-          result,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-
-        return normalizePlan({
-          ...p,
-          sections: {
-            ...(p.sections || {}),
-            monitoringReview: nextReview,
-          },
-        });
-      });
-
-      alert("Knowledge Engine enhancement completed and added to Monitoring & Review.");
-    } catch (e) {
-      console.error(e);
-      alert("Knowledge Engine failed. Check console and confirm OPENAI_API_KEY is set in Vercel.");
-    } finally {
-      setIsEnhancing(false);
+    if (!res.ok || !data.ok) {
+      throw new Error(
+        data?.details ||
+          data?.error ||
+          data?.fix ||
+          "Knowledge Engine request failed."
+      );
     }
+
+    const result = data?.result || "";
+
+    setKnowledgeOutput(result);
+
+    setActivePlan((prev) => {
+      const p = normalizePlan(prev);
+
+      const existingMonitoring = p.sections?.monitoringReview || "";
+      const existingLegalEthical = p.sections?.legalEthical || "";
+      const existingSupports = p.sections?.functionalNeeds || "";
+
+      const enhancedMonitoring = [
+        existingMonitoring,
+        "",
+        "Theraa Nurse Knowledge Engine Enhancement:",
+        result,
+        "",
+        `Evidence reviewed: ${docs.length} document(s).`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const enhancedLegalEthical = [
+        existingLegalEthical,
+        "",
+        "Knowledge Engine scope note:",
+        "Recommendations are AI-assisted and must be reviewed by an authorised coordinator, supervisor, clinician, or relevant professional before implementation.",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const enhancedSupports = [
+        existingSupports,
+        "",
+        "Knowledge Engine support considerations:",
+        "Review the AI recommendations in Monitoring & Review and apply only the actions that are safe, evidence-based, participant-approved, and within worker scope.",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      return normalizePlan({
+        ...p,
+        sections: {
+          ...(p.sections || {}),
+          monitoringReview: enhancedMonitoring,
+          legalEthical: enhancedLegalEthical,
+          functionalNeeds: enhancedSupports,
+        },
+      });
+    });
+
+    alert(
+      "Knowledge Engine enhancement completed and added to the current care plan draft."
+    );
+  } catch (error) {
+    console.error("========== KNOWLEDGE ENGINE ERROR ==========");
+    console.error(error);
+
+    alert(
+      `Knowledge Engine Error:\n\n${
+        error?.message || "Unknown error"
+      }\n\nMost likely causes: no API credit, document too large, invalid API key, or OpenAI model access issue.`
+    );
+  } finally {
+    setIsEnhancing(false);
   }
+}
 
   function saveVersion(status) {
     const plan = normalizePlan(activePlan);
