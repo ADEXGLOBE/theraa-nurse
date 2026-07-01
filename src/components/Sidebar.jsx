@@ -5,6 +5,7 @@ const navItems = [
   { key: "home", label: "Dashboard", icon: "🏠" },
   { key: "clients", label: "Participants", icon: "👥" },
   { key: "documents", label: "Documents", icon: "📄" },
+  { key: "knowledgeLibrary", label: "Knowledge Library", icon: "🏛" },
   { key: "careplan", label: "Purpose Plans", icon: "🎯" },
   { key: "insights", label: "Insights", icon: "📊" },
   { key: "therapy", label: "Therapy", icon: "🧠" },
@@ -14,7 +15,7 @@ const navItems = [
   { key: "vpn", label: "Remote Support", icon: "🔐" },
   { key: "knowledge", label: "Knowledge Engine", icon: "🤖" },
   { key: "timeline", label: "Timeline", icon: "🕒" },
-  { key: "knowledgeLibrary", label: "Knowledge Library", icon: "🏛" },
+  
 ];
 
 export default function Sidebar({ selectedZone, setSelectedZone }) {
