@@ -50,7 +50,7 @@ function AppShell() {
         return <ParamedicZone />;
       case "knowledge":
         return <KnowledgeEngine />;
-      case "KnowledgeLibrary":
+      case "knowledgeLibrary":
         return <KnowledgeLibrary />;
         
       default:
