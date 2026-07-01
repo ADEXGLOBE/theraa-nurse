@@ -48,9 +48,9 @@ function AppShell() {
         return <VpnZone />;
       case "paramedic":
         return <ParamedicZone />;
-      case "Knowledge":
+      case "knowledge":
         return <KnowledgeEngine />;
-      case "knowledgeLibrary":
+      case "KnowledgeLibrary":
         return <KnowledgeLibrary />;
         
       default:
