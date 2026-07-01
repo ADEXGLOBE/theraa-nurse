@@ -52,6 +52,7 @@ function AppShell() {
         return <KnowledgeEngine />;
       case "knowledgeLibrary":
         return <KnowledgeLibrary />;
+        
       default:
         return <HomeDashboard />;
     }
