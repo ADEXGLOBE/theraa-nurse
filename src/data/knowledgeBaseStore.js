@@ -1,4 +1,4 @@
-const STORAGE_KEY = "theraa_nurse_knowledge_base_v1";
+const STORAGE_KEY = "theraa_nurse_knowledge_library_v1";
 
 function uid() {
   return `kb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
@@ -16,33 +16,35 @@ function saveAll(items) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items || []));
 }
 
-export function loadKnowledgeArticles() {
+export function loadKnowledgeItems() {
   return loadAll();
 }
 
-export function saveKnowledgeArticle(article) {
+export function saveKnowledgeItem(item) {
   const now = new Date().toISOString();
 
-  const newArticle = {
+  const newItem = {
     id: uid(),
-    title: article.title || "Untitled Knowledge Document",
-    category: article.category || "General",
-    source: article.source || "",
-    content: article.content || "",
-    fileName: article.fileName || "",
+    title: item.title || "Untitled Knowledge Document",
+    category: item.category || "General",
+    source: item.source || "",
+    fileName: item.fileName || "",
+    fileType: item.fileType || "",
+    content: item.content || "",
+    tags: item.tags || [],
     createdAt: now,
     updatedAt: now,
   };
 
-  saveAll([newArticle, ...loadAll()]);
-  return newArticle.id;
+  saveAll([newItem, ...loadAll()]);
+  return newItem.id;
 }
 
-export function deleteKnowledgeArticle(id) {
+export function deleteKnowledgeItem(id) {
   saveAll(loadAll().filter((item) => item.id !== id));
 }
 
-export function searchKnowledge(query = "") {
+export function searchKnowledgeItems(query = "") {
   const q = String(query).toLowerCase().trim();
   if (!q) return loadAll();
 
@@ -51,8 +53,9 @@ export function searchKnowledge(query = "") {
       item.title,
       item.category,
       item.source,
-      item.content,
       item.fileName,
+      item.content,
+      ...(item.tags || []),
     ]
       .join(" ")
       .toLowerCase()
@@ -60,11 +63,19 @@ export function searchKnowledge(query = "") {
   );
 }
 
-export function getKnowledgeContext() {
-  return loadAll()
+export function getKnowledgeContext(query = "") {
+  const items = query ? searchKnowledgeItems(query) : loadAll();
+
+  return items
+    .slice(0, 8)
     .map(
-      (item) =>
-        `Title: ${item.title}\nCategory: ${item.category}\nSource: ${item.source}\nContent:\n${item.content}`
+      (item) => `
+Title: ${item.title}
+Category: ${item.category}
+Source: ${item.source || item.fileName || "Unknown"}
+Content:
+${item.content}
+`
     )
     .join("\n\n---\n\n");
 }

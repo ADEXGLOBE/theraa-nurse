@@ -15,6 +15,7 @@ import HomeDashboard from "./pages/HomeDashboard";
 import AuthPage from "./pages/AuthPage";
 import KnowledgeEngine from "./pages/KnowledgeEngine";
 import ParticipantTimeline from "./pages/ParticipantTimeline";
+import KnowledgeLibrary from "./pages/KnowledgeLibrary";
 
 import { ActiveClientProvider } from "./context/ActiveClientContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -49,6 +50,8 @@ function AppShell() {
         return <ParamedicZone />;
       case "Knowledge":
         return <KnowledgeEngine />;
+      case "knowledgeLibrary":
+        return <KnowledgeLibrary />;
       default:
         return <HomeDashboard />;
     }

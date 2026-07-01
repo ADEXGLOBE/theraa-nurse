@@ -14,6 +14,7 @@ const navItems = [
   { key: "vpn", label: "Remote Support", icon: "🔐" },
   { key: "knowledge", label: "Knowledge Engine", icon: "🤖" },
   { key: "timeline", label: "Timeline", icon: "🕒" },
+  { key: "knowledgeLibrary", label: "Knowledge Library", icon: "🏛" },
 ];
 
 export default function Sidebar({ selectedZone, setSelectedZone }) {

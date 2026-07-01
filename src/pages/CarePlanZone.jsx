@@ -555,8 +555,18 @@ async function enhanceWithKnowledgeEngine() {
         "No extracted document text found.",
     ].join("\n");
 
-    const knowledge =
-      typeof getKnowledgeContext === "function" ? getKnowledgeContext() : "";
+    const knowledge = getKnowledgeContext(
+  [
+    client?.name,
+    client?.notes,
+    activePlan?.sections?.risks,
+    activePlan?.sections?.goalsShort,
+    activePlan?.sections?.goalsLong,
+    activePlan?.sections?.functionalNeeds,
+  ]
+    .filter(Boolean)
+    .join(" ")
+);
 
     const res = await fetch("/api/knowledge-engine", {
       method: "POST",
