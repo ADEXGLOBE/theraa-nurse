@@ -79,3 +79,20 @@ ${item.content}
     )
     .join("\n\n---\n\n");
 }
+
+/* Backward-compatible exports for older KnowledgeEngine.jsx */
+export function loadKnowledgeArticles() {
+  return loadKnowledgeItems();
+}
+
+export function saveKnowledgeArticle(article) {
+  return saveKnowledgeItem(article);
+}
+
+export function searchKnowledge(query = "") {
+  return searchKnowledgeItems(query);
+}
+
+export function deleteKnowledgeArticle(id) {
+  return deleteKnowledgeItem(id);
+}
