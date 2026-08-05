@@ -15,7 +15,7 @@
     "jspdf": "^4.0.0",
     "mammoth": "^1.11.0",
     "openai": "^6.45.0",
-    "pdfjs-dist": "^5.4.530",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tesseract.js": "^7.0.0"
