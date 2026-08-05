@@ -16,6 +16,7 @@ import AuthPage from "./pages/AuthPage";
 import KnowledgeEngine from "./pages/KnowledgeEngine";
 import ParticipantTimeline from "./pages/ParticipantTimeline";
 import KnowledgeLibrary from "./pages/KnowledgeLibrary";
+import TeamManagement from "./pages/TeamManagement";
 
 import {
   AuthProvider,
@@ -182,6 +183,9 @@ function AppWorkspace() {
     switch (selectedZone) {
       case "home":
         return <HomeDashboard />;
+
+      case "team":
+        return <TeamManagement />;
 
       case "clients":
         return <Clients />;

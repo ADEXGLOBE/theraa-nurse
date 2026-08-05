@@ -7,7 +7,20 @@ import {
   loginToTheraaNurse,
   sendPasswordReset,
   updatePassword,
+  createInvitedMemberAccount,
 } from "../services/onboardingService";
+
+import {
+  lookupInvitation,
+} from "../services/teamService";
+
+import InvitationSignup from "../components/InvitationSignup";
+
+
+const inviteToken =
+  new URLSearchParams(
+    window.location.search
+  ).get("invite") || "";
 
 const PROVIDER_TYPES = [
   "NDIS Provider",
@@ -113,8 +126,9 @@ function FormMessage({ error, message }) {
 }
 
 export default function AuthPage() {
-  const [screen, setScreen] =
-    useState("welcome");
+ const [screen, setScreen] = useState(
+  inviteToken ? "join" : "welcome"
+);
 
   const [providerStep, setProviderStep] =
     useState(1);
@@ -486,8 +500,10 @@ export default function AuthPage() {
             icon="🔗"
             title="Join Existing Organisation"
             description="For workers and professionals who have received an invitation from a manager or Provider Admin."
-            buttonText="Invitation Setup Coming Next"
-            disabled
+            buttonText="Join Team"
+            onClick={() =>
+              openScreen("join")
+            }
           />
         </div>
 
@@ -1390,6 +1406,16 @@ export default function AuthPage() {
         screen === "forgot"
           ? renderForgotPassword()
           : null}
+        
+        {!isRecovery &&
+        screen === "join" ? (
+        <InvitationSignup
+           initialToken={inviteToken}
+            onBack={() =>
+              openScreen("welcome")
+    }
+  />
+) : null}
 
         <div className="auth-v3-footer">
           Secure access for providers,

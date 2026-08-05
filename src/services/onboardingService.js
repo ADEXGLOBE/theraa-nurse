@@ -5,7 +5,10 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
-function validatePassword(password, confirmPassword) {
+function validatePassword(
+  password,
+  confirmPassword
+) {
   if (!password || password.length < 8) {
     throw new Error(
       "Password must contain at least 8 characters."
@@ -40,15 +43,20 @@ export async function createProviderOrganisationAccount({
 
   if (!clean(managerName)) {
     throw new Error(
-      "Manager or account-owner name is required."
+      "Manager name is required."
     );
   }
 
   if (!clean(email)) {
-    throw new Error("Email is required.");
+    throw new Error(
+      "Email is required."
+    );
   }
 
-  validatePassword(password, confirmPassword);
+  validatePassword(
+    password,
+    confirmPassword
+  );
 
   const { data, error } =
     await supabase.auth.signUp({
@@ -56,7 +64,8 @@ export async function createProviderOrganisationAccount({
       password,
 
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo:
+          window.location.origin,
 
         data: {
           signup_mode: "provider",
@@ -72,17 +81,20 @@ export async function createProviderOrganisationAccount({
           provider_type:
             clean(providerType),
           ndis_registration_status:
-            clean(ndisRegistrationStatus),
-          phone: clean(organisationPhone),
-          address:
-            clean(organisationAddress),
+            clean(
+              ndisRegistrationStatus
+            ),
+          phone: clean(
+            organisationPhone
+          ),
+          address: clean(
+            organisationAddress
+          ),
         },
       },
     });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return data;
 }
@@ -98,7 +110,9 @@ export async function createIndependentAccount({
   confirmPassword,
 }) {
   if (!clean(fullName)) {
-    throw new Error("Full name is required.");
+    throw new Error(
+      "Full name is required."
+    );
   }
 
   if (!clean(professionalRole)) {
@@ -107,15 +121,16 @@ export async function createIndependentAccount({
     );
   }
 
-  if (!clean(email)) {
-    throw new Error("Email is required.");
-  }
-
-  validatePassword(password, confirmPassword);
+  validatePassword(
+    password,
+    confirmPassword
+  );
 
   const workspaceName =
     clean(businessName) ||
-    `${clean(fullName)} Professional Workspace`;
+    `${clean(
+      fullName
+    )} Professional Workspace`;
 
   const { data, error } =
     await supabase.auth.signUp({
@@ -123,18 +138,17 @@ export async function createIndependentAccount({
       password,
 
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo:
+          window.location.origin,
 
         data: {
           signup_mode: "independent",
           workspace_name: workspaceName,
           full_name: clean(fullName),
-          position_title: clean(
-            professionalRole
-          ),
-          professional_role: clean(
-            professionalRole
-          ),
+          position_title:
+            clean(professionalRole),
+          professional_role:
+            clean(professionalRole),
           abn: clean(abn),
           provider_type:
             "Independent Professional",
@@ -146,9 +160,65 @@ export async function createIndependentAccount({
       },
     });
 
-  if (error) {
-    throw error;
+  if (error) throw error;
+
+  return data;
+}
+
+export async function createInvitedMemberAccount({
+  invitationToken,
+  fullName,
+  professionalRole,
+  email,
+  password,
+  confirmPassword,
+}) {
+  if (!clean(invitationToken)) {
+    throw new Error(
+      "Invitation code is required."
+    );
   }
+
+  if (!clean(fullName)) {
+    throw new Error(
+      "Your full name is required."
+    );
+  }
+
+  if (!clean(email)) {
+    throw new Error(
+      "Your invited email is required."
+    );
+  }
+
+  validatePassword(
+    password,
+    confirmPassword
+  );
+
+  const { data, error } =
+    await supabase.auth.signUp({
+      email: clean(email).toLowerCase(),
+      password,
+
+      options: {
+        emailRedirectTo:
+          window.location.origin,
+
+        data: {
+          signup_mode: "invited",
+          invitation_token:
+            clean(invitationToken),
+          full_name: clean(fullName),
+          professional_role:
+            clean(professionalRole),
+          position_title:
+            clean(professionalRole),
+        },
+      },
+    });
+
+  if (error) throw error;
 
   return data;
 }
@@ -157,43 +227,31 @@ export async function loginToTheraaNurse({
   email,
   password,
 }) {
-  if (!clean(email) || !password) {
-    throw new Error(
-      "Enter your email and password."
-    );
-  }
-
   const { data, error } =
     await supabase.auth.signInWithPassword({
       email: clean(email).toLowerCase(),
       password,
     });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return data;
 }
 
-export async function sendPasswordReset(email) {
-  if (!clean(email)) {
-    throw new Error(
-      "Enter your email before requesting a password reset."
-    );
-  }
-
+export async function sendPasswordReset(
+  email
+) {
   const { data, error } =
-    await supabase.auth.resetPasswordForEmail(
-      clean(email).toLowerCase(),
-      {
-        redirectTo: window.location.origin,
-      }
-    );
+    await supabase.auth
+      .resetPasswordForEmail(
+        clean(email).toLowerCase(),
+        {
+          redirectTo:
+            window.location.origin,
+        }
+      );
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return data;
 }
@@ -215,9 +273,7 @@ export async function updatePassword(
       password: newPassword,
     });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return data;
 }

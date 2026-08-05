@@ -5327,4 +5327,292 @@ select {
   .auth-form-actions {
     display: grid;
   }
+}/* =========================================================
+   THERAA NURSE V3 — TEAM MANAGEMENT
+========================================================= */
+
+.team-page {
+  padding-bottom: 50px;
+}
+
+.team-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  padding: 28px;
+  border-radius: 26px;
+  color: #ffffff;
+  background:
+    radial-gradient(
+      circle at 88% 12%,
+      rgba(45, 212, 191, 0.26),
+      transparent 35%
+    ),
+    linear-gradient(
+      135deg,
+      #0f172a,
+      #164e63 52%,
+      #0f766e
+    );
+}
+
+.team-hero h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(30px, 4vw, 43px);
+  letter-spacing: -0.045em;
+}
+
+.team-hero p {
+  max-width: 750px;
+  margin: 0;
+  color: #ccfbf1;
+  line-height: 1.65;
+}
+
+.team-workspace-name {
+  display: inline-flex;
+  margin-top: 15px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.team-current-access {
+  min-width: 230px;
+  padding: 18px;
+  border: 1px solid
+    rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.team-current-access span,
+.team-current-access strong,
+.team-current-access small {
+  display: block;
+}
+
+.team-current-access span {
+  color: #99f6e4;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.team-current-access strong {
+  margin-top: 5px;
+}
+
+.team-current-access small {
+  margin-top: 4px;
+  color: #ccfbf1;
+}
+
+.team-stat-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.team-stat-card {
+  padding: 15px;
+  border: 1px solid #e2e8f0;
+  border-radius: 17px;
+  background: #ffffff;
+}
+
+.team-stat-icon {
+  font-size: 20px;
+}
+
+.team-stat-card strong,
+.team-stat-card span {
+  display: block;
+}
+
+.team-stat-card strong {
+  margin-top: 10px;
+  font-size: 23px;
+}
+
+.team-stat-card span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.team-main-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(310px, 0.7fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.team-main-column,
+.team-side-column {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.team-invite-form {
+  display: grid;
+  grid-template-columns:
+    1fr 1fr 0.8fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 14px;
+}
+
+.team-invite-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.team-invite-form label span {
+  color: #475569;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.team-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 13px;
+}
+
+.team-member-card {
+  display: grid;
+  grid-template-columns:
+    auto minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.team-member-card.compact {
+  grid-template-columns:
+    auto minmax(0, 1fr);
+}
+
+.team-member-avatar {
+  width: 39px;
+  height: 39px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #ccfbf1;
+  color: #0f766e;
+  font-weight: 950;
+}
+
+.team-member-info {
+  min-width: 0;
+}
+
+.team-member-info strong,
+.team-member-info span,
+.team-member-info small {
+  display: block;
+}
+
+.team-member-info span {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  color: #475569;
+  font-size: 11px;
+}
+
+.team-member-info small {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 9px;
+}
+
+.team-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.team-card-actions button {
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #ffffff;
+  padding: 7px 9px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.team-card-actions button.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.team-process-list {
+  margin: 13px 0 0;
+  padding-left: 20px;
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.team-warning {
+  margin-top: 13px;
+  padding: 11px;
+  border: 1px solid #fde68a;
+  border-radius: 11px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 11px;
+}
+
+@media (max-width: 1120px) {
+  .team-stat-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .team-invite-form {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .team-hero,
+  .team-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .team-current-access {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 650px) {
+  .team-stat-grid,
+  .team-invite-form {
+    grid-template-columns: 1fr;
+  }
+
+  .team-member-card {
+    grid-template-columns:
+      auto minmax(0, 1fr);
+  }
+
+  .team-card-actions {
+    grid-column: 1 / -1;
+  }
 }

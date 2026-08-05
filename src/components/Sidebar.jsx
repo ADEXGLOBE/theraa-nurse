@@ -9,6 +9,11 @@ const navItems = [
     icon: "🏠",
   },
   {
+  key: "team",
+  label: "Team",
+  icon: "👔",
+  },
+  {
     key: "clients",
     label: "Participants",
     icon: "👥",
