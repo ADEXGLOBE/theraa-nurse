@@ -72,6 +72,15 @@ const EMPTY_PLAN = () => ({
     purposeCards: [],
   },
 
+  ai: {
+    confidence: {},
+    missingEvidence: [],
+    evidenceUsed: [],
+    escalationReferrals: [],
+    lastEnhancedAt: "",
+    model: "",
+  },
+
   generatedAt: "",
   clientId: "",
 });
@@ -95,6 +104,51 @@ function uniq(arr) {
 
 function safe(v) {
   return v == null ? "" : String(v);
+}
+
+function cleanText(value) {
+  return safe(value).replace(/\r\n/g, "\n").trim();
+}
+
+function appendSectionText(existing, incoming, heading = "") {
+  const current = cleanText(existing);
+  const addition = cleanText(incoming);
+
+  if (!addition) return current;
+
+  const block = heading ? `${heading}\n${addition}` : addition;
+
+  // Prevent the exact same AI block being added repeatedly.
+  if (current.includes(block)) return current;
+
+  return [current, block].filter(Boolean).join("\n\n");
+}
+
+function formatStringList(items, emptyValue = "") {
+  const values = uniq(asArray(items));
+  return values.length ? values.map((item) => `• ${item}`).join("\n") : emptyValue;
+}
+
+function normalisePurposeCards(cards) {
+  return asArray(cards)
+    .map((card, index) => ({
+      id: card?.id || `ai-purpose-${Date.now()}-${index}`,
+      title: cleanText(card?.title) || `Purpose activity ${index + 1}`,
+      domain: cleanText(card?.domain) || "General",
+      frequency: cleanText(card?.frequency) || "As planned",
+      whyItMatters: cleanText(card?.whyItMatters),
+      participantAction: cleanText(card?.participantAction),
+      workerAction: cleanText(card?.workerAction),
+      source: "Theraa Nurse Knowledge Engine",
+    }))
+    .filter((card) =>
+      Boolean(
+        card.title ||
+          card.whyItMatters ||
+          card.participantAction ||
+          card.workerAction
+      )
+    );
 }
 
 function formatTodoString(todoObj) {
@@ -174,6 +228,20 @@ function normalizePlan(planLike) {
     runningSource: {
       ...base.runningSource,
       ...(p.runningSource || {}),
+      purposeCards: asArray(
+        p?.runningSource?.purposeCards || base.runningSource.purposeCards
+      ),
+    },
+    ai: {
+      ...base.ai,
+      ...(p.ai || {}),
+      confidence:
+        p?.ai?.confidence && typeof p.ai.confidence === "object"
+          ? p.ai.confidence
+          : {},
+      missingEvidence: uniq(p?.ai?.missingEvidence),
+      evidenceUsed: uniq(p?.ai?.evidenceUsed),
+      escalationReferrals: uniq(p?.ai?.escalationReferrals),
     },
   };
 
@@ -555,18 +623,22 @@ async function enhanceWithKnowledgeEngine() {
         "No extracted document text found.",
     ].join("\n");
 
-    const knowledge = getKnowledgeContext(
-  [
-    client?.name,
-    client?.notes,
-    activePlan?.sections?.risks,
-    activePlan?.sections?.goalsShort,
-    activePlan?.sections?.goalsLong,
-    activePlan?.sections?.functionalNeeds,
-  ]
-    .filter(Boolean)
-    .join(" ")
-);
+    const knowledgeQuery = [
+      client?.name,
+      client?.notes,
+      activePlan?.sections?.risks,
+      activePlan?.sections?.goalsShort,
+      activePlan?.sections?.goalsLong,
+      activePlan?.sections?.functionalNeeds,
+      activePlan?.sections?.healthClinical,
+      activePlan?.sections?.behaviourSupport,
+      activePlan?.sections?.communication,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const knowledge =
+      getKnowledgeContext(knowledgeQuery) || getKnowledgeContext();
 
     const res = await fetch("/api/knowledge-engine", {
       method: "POST",
@@ -591,68 +663,214 @@ async function enhanceWithKnowledgeEngine() {
       );
     }
 
-    const result = data?.result || "";
+    const structured = data?.structured;
 
+    if (!structured || typeof structured !== "object") {
+      throw new Error(
+        "The Knowledge Engine did not return structured care-plan data. Redeploy the updated API and try again."
+      );
+    }
+
+    const result = data?.result || JSON.stringify(structured, null, 2);
     setKnowledgeOutput(result);
 
     setActivePlan((prev) => {
       const p = normalizePlan(prev);
+      const nextSections = { ...(p.sections || {}) };
 
-      const existingMonitoring = p.sections?.monitoringReview || "";
-      const existingLegalEthical = p.sections?.legalEthical || "";
-      const existingSupports = p.sections?.functionalNeeds || "";
+      nextSections.participantDetails = appendSectionText(
+        nextSections.participantDetails,
+        [structured.participantSummary, structured.participantDetails]
+          .map(cleanText)
+          .filter(Boolean)
+          .join("\n\n"),
+        "Theraa Nurse AI — Participant summary"
+      );
 
-      const enhancedMonitoring = [
-        existingMonitoring,
-        "",
-        "Theraa Nurse Knowledge Engine Enhancement:",
-        result,
-        "",
-        `Evidence reviewed: ${docs.length} document(s).`,
+      nextSections.strengths = appendSectionText(
+        nextSections.strengths,
+        structured.strengthsAndPreferences,
+        "Theraa Nurse AI — Strengths, interests and preferences"
+      );
+
+      nextSections.routinesAndPreferences = appendSectionText(
+        nextSections.routinesAndPreferences,
+        structured.strengthsAndPreferences,
+        "Theraa Nurse AI — Routines and preferences to confirm"
+      );
+
+      nextSections.goalsShort = appendSectionText(
+        nextSections.goalsShort,
+        structured.purposeCentredGoals,
+        "Theraa Nurse AI — Purpose-centred goals"
+      );
+
+      nextSections.communication = appendSectionText(
+        nextSections.communication,
+        structured.communicationNeeds,
+        "Theraa Nurse AI — Communication and decision-making"
+      );
+
+      nextSections.functionalNeeds = appendSectionText(
+        nextSections.functionalNeeds,
+        structured.functionalSupports,
+        "Theraa Nurse AI — Functional supports"
+      );
+
+      nextSections.healthClinical = appendSectionText(
+        nextSections.healthClinical,
+        structured.healthClinical,
+        "Theraa Nurse AI — Health and clinical considerations"
+      );
+
+      nextSections.behaviourSupport = appendSectionText(
+        nextSections.behaviourSupport,
+        structured.behaviourSupport,
+        "Theraa Nurse AI — Behaviour support considerations"
+      );
+
+      nextSections.risks = appendSectionText(
+        nextSections.risks,
+        structured.risks,
+        "Theraa Nurse AI — Evidence-based risks"
+      );
+
+      nextSections.riskControls = uniq([
+        ...(nextSections.riskControls || []),
+        ...asArray(structured.escalationReferrals).map(
+          (item) => `Escalation/referral: ${item}`
+        ),
+      ]);
+
+      nextSections.safeguardsConsent = appendSectionText(
+        nextSections.safeguardsConsent,
+        structured.legalEthical,
+        "Theraa Nurse AI — Consent, safeguards and rights"
+      );
+
+      const monitoringBlocks = [
+        cleanText(structured.monitoringReview),
+        asArray(structured.escalationReferrals).length
+          ? `Escalation and referral suggestions:\n${formatStringList(
+              structured.escalationReferrals
+            )}`
+          : "",
+        asArray(structured.missingEvidence).length
+          ? `Missing evidence to obtain or confirm:\n${formatStringList(
+              structured.missingEvidence
+            )}`
+          : "",
+        `Evidence reviewed: ${docs.length} participant document(s).`,
       ]
         .filter(Boolean)
         .join("\n\n");
 
-      const enhancedLegalEthical = [
-        existingLegalEthical,
-        "",
-        "Knowledge Engine scope note:",
-        "Recommendations are AI-assisted and must be reviewed by an authorised coordinator, supervisor, clinician, or relevant professional before implementation.",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      nextSections.monitoringReview = appendSectionText(
+        nextSections.monitoringReview,
+        monitoringBlocks,
+        "Theraa Nurse AI — Monitoring, review and evidence gaps"
+      );
 
-      const enhancedSupports = [
-        existingSupports,
-        "",
-        "Knowledge Engine support considerations:",
-        "Review the AI recommendations in Monitoring & Review and apply only the actions that are safe, evidence-based, participant-approved, and within worker scope.",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      nextSections.legalEthical = appendSectionText(
+        nextSections.legalEthical,
+        [
+          cleanText(structured.legalEthical),
+          "AI-assisted recommendations must be reviewed by an authorised coordinator, supervisor, clinician or other relevant professional before implementation.",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        "Theraa Nurse AI — Legal, ethical and scope note"
+      );
 
-      return normalizePlan({
-        ...p,
-        sections: {
-          ...(p.sections || {}),
-          monitoringReview: enhancedMonitoring,
-          legalEthical: enhancedLegalEthical,
-          functionalNeeds: enhancedSupports,
-        },
+      const workerActions = uniq(structured.supportWorkerActions);
+      const coordinatorActions = uniq(
+        asArray(structured.supportCoordinatorActions).map(
+          (item) => `[Coordinator] ${item}`
+        )
+      );
+
+      const pendingWorkerActions = uniq([
+        ...(p.todos?.worker || []),
+        ...workerActions,
+        ...coordinatorActions,
+      ]).filter(
+        (item) =>
+          !new Set(p.approvals?.approvedWorker || []).has(String(item).trim())
+      );
+
+      const purposeCards = normalisePurposeCards(structured.purposePlan);
+      const mergedPurposeCards = [
+        ...(p.runningSource?.purposeCards || []),
+        ...purposeCards,
+      ].filter((card, index, all) => {
+        const key = `${card.title}|${card.domain}|${card.participantAction}`;
+        return (
+          all.findIndex(
+            (candidate) =>
+              `${candidate.title}|${candidate.domain}|${candidate.participantAction}` ===
+              key
+          ) === index
+        );
       });
+
+      const next = normalizePlan({
+        ...p,
+        sections: nextSections,
+        todos: {
+          ...(p.todos || {}),
+          worker: pendingWorkerActions,
+          client: uniq(p.todos?.client),
+        },
+        runningSource: {
+          ...(p.runningSource || {}),
+          generatedAt: new Date().toISOString(),
+          summary:
+            cleanText(structured.participantSummary) ||
+            p.runningSource?.summary ||
+            "",
+          purposeCards: mergedPurposeCards,
+        },
+        ai: {
+          ...(p.ai || {}),
+          confidence:
+            structured.confidence && typeof structured.confidence === "object"
+              ? structured.confidence
+              : {},
+          missingEvidence: uniq(structured.missingEvidence),
+          evidenceUsed: uniq(structured.evidenceUsed),
+          escalationReferrals: uniq(structured.escalationReferrals),
+          lastEnhancedAt: new Date().toISOString(),
+          model: data?.meta?.model || "",
+        },
+        generatedAt: new Date().toISOString(),
+        clientId: client.id,
+      });
+
+      next.goalsShort = next.sections.goalsShort || "";
+      next.goalsLong = next.sections.goalsLong || "";
+      next.risks = next.sections.risks || "";
+      next.communication = next.sections.communication || "";
+      next.supports = next.sections.functionalNeeds || "";
+      next.legalEthical = next.sections.legalEthical || "";
+
+      return next;
     });
 
     alert(
-      "Knowledge Engine enhancement completed and added to the current care plan draft."
+      "Knowledge Engine enhancement completed. Recommendations were distributed into the appropriate Purpose Plan sections and remain pending professional review."
     );
   } catch (error) {
     console.error("========== KNOWLEDGE ENGINE ERROR ==========");
     console.error(error);
 
     alert(
-      `Knowledge Engine Error:\n\n${
+      `Knowledge Engine Error:
+
+${
         error?.message || "Unknown error"
-      }\n\nMost likely causes: no API credit, document too large, invalid API key, or OpenAI model access issue.`
+      }
+
+Check the Vercel deployment, API credit, document size and browser console for details.`
     );
   } finally {
     setIsEnhancing(false);
@@ -749,6 +967,11 @@ async function enhanceWithKnowledgeEngine() {
   const approvedWorker = uniq(activePlan?.approvals?.approvedWorker);
   const approvedClient = uniq(activePlan?.approvals?.approvedClient);
   const purposeCards = asArray(activePlan?.runningSource?.purposeCards);
+  const aiConfidence = activePlan?.ai?.confidence || {};
+  const aiMissingEvidence = uniq(activePlan?.ai?.missingEvidence);
+  const aiEvidenceUsed = uniq(activePlan?.ai?.evidenceUsed);
+  const aiEscalations = uniq(activePlan?.ai?.escalationReferrals);
+  const overallConfidence = Number(aiConfidence?.overall || 0);
 
   return (
   <div className="zone-page careplan-pro-page">
@@ -868,6 +1091,78 @@ async function enhanceWithKnowledgeEngine() {
           </div>
         </div>
       </Card>
+
+      {activePlan?.ai?.lastEnhancedAt ? (
+        <Card
+          title="AI Enhancement Summary"
+          subtitle="Structured Knowledge Engine output has been distributed across this Purpose Plan. Review every section before saving as Reviewed."
+          right={
+            <div
+              style={{
+                borderRadius: 999,
+                padding: "7px 12px",
+                background:
+                  overallConfidence >= 80
+                    ? "#dcfce7"
+                    : overallConfidence >= 60
+                      ? "#fef3c7"
+                      : "#fee2e2",
+                color:
+                  overallConfidence >= 80
+                    ? "#166534"
+                    : overallConfidence >= 60
+                      ? "#92400e"
+                      : "#991b1b",
+                fontWeight: 800,
+                fontSize: 12,
+              }}
+            >
+              Confidence: {overallConfidence || "—"}%
+            </div>
+          }
+        >
+          <div className="two-column">
+            <div>
+              <div className="section-title-sm">Evidence used</div>
+              {aiEvidenceUsed.length ? (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+                  {aiEvidenceUsed.map((item) => (
+                    <li key={item} style={{ marginBottom: 5, fontSize: 13 }}>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 8 }}>
+                  No evidence list was returned.
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="section-title-sm">Missing evidence / escalation</div>
+              {aiMissingEvidence.length === 0 && aiEscalations.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 8 }}>
+                  No additional evidence gaps or escalation items were returned.
+                </div>
+              ) : (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+                  {aiMissingEvidence.map((item) => (
+                    <li key={`missing-${item}`} style={{ marginBottom: 5, fontSize: 13 }}>
+                      Missing: {item}
+                    </li>
+                  ))}
+                  {aiEscalations.map((item) => (
+                    <li key={`escalation-${item}`} style={{ marginBottom: 5, fontSize: 13 }}>
+                      Escalation: {item}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {knowledgeOutput ? (
         <Card
