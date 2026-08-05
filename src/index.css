@@ -4675,3 +4675,258 @@ select {
     flex-direction: column;
   }
 }
+/* =========================================================
+   THERAA NURSE — WORKSPACE USER IDENTITY
+========================================================= */
+
+.dashboard-account-card {
+  min-width: 270px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 15px 17px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-account-avatar {
+  width: 45px;
+  height: 45px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.dashboard-account-details {
+  min-width: 0;
+}
+
+.dashboard-account-label,
+.dashboard-account-email,
+.dashboard-account-workspace {
+  display: block;
+}
+
+.dashboard-account-label {
+  color: #cbd5e1;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dashboard-account-email {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.dashboard-account-role {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.dashboard-account-workspace {
+  margin-top: 4px;
+  color: #bfdbfe;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.workspace-identity-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.workspace-identity-strip > div {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.workspace-identity-strip span,
+.workspace-identity-strip strong {
+  display: block;
+}
+
+.workspace-identity-strip span {
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-identity-strip strong {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #334155;
+  font-size: 11px;
+}
+
+.dashboard-access-error {
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 13px;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.dashboard-access-error strong {
+  font-size: 12px;
+}
+
+.dashboard-access-error span {
+  font-size: 11px;
+}
+
+.dashboard-loading-label {
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.participant-row {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.participant-row:hover,
+.participant-row-active {
+  border-color: #c7d2fe;
+  background: #f8faff;
+}
+
+.participant-permission {
+  margin-top: 4px;
+  color: #6366f1;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.worker-identity-row {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.worker-identity-row span {
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.worker-identity-row strong {
+  color: #334155;
+  font-size: 12px;
+}
+
+.worker-identity-row small {
+  color: #6366f1;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+/* Sidebar workspace identity */
+
+.sidebar-workspace-card {
+  display: grid;
+  gap: 3px;
+  margin: 10px 12px 15px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.sidebar-workspace-card span {
+  color: #94a3b8;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sidebar-workspace-card strong {
+  overflow-wrap: anywhere;
+  color: #f8fafc;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.sidebar-workspace-card small {
+  color: #a5b4fc;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.sidebar-user-info {
+  min-width: 0;
+}
+
+.sidebar-user-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-workspace {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 8px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .workspace-identity-strip {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-account-card {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .workspace-identity-strip {
+    grid-template-columns: 1fr;
+  }
+}
