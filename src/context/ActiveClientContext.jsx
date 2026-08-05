@@ -1,32 +1,126 @@
 // src/context/ActiveClientContext.jsx
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { loadClients } from "../data/clientsStore";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import { useAuth } from "./AuthContext";
+import { useWorkspace } from "./WorkspaceContext";
+import { getParticipantsForWorkspace } from "../services/patientAccessService";
 
 const ActiveClientContext = createContext(null);
 
-const STORAGE_KEY = "tn_active_client_id_v1";
+const ACTIVE_PARTICIPANT_KEY =
+  "tn_active_participant_id_v2";
 
 export function ActiveClientProvider({ children }) {
+  const { user } = useAuth();
+
+  const {
+    organisationId,
+    role,
+    workspaceReady,
+  } = useWorkspace();
+
   const [clients, setClients] = useState([]);
-  const [activeClientId, setActiveClientId] = useState("");
+  const [activeClientId, setActiveClientId] =
+    useState("");
+  const [clientsReady, setClientsReady] =
+    useState(false);
+  const [clientsError, setClientsError] =
+    useState("");
+
+  const refreshClients = useCallback(async () => {
+    if (
+      !user?.id ||
+      !organisationId ||
+      !workspaceReady
+    ) {
+      setClients([]);
+      setActiveClientId("");
+      setClientsReady(true);
+      return;
+    }
+
+    setClientsReady(false);
+    setClientsError("");
+
+    try {
+      const loaded =
+        await getParticipantsForWorkspace({
+          userId: user.id,
+          organisationId,
+          role,
+        });
+
+      setClients(loaded);
+
+      const storageKey = `${ACTIVE_PARTICIPANT_KEY}:${organisationId}`;
+      const stored =
+        localStorage.getItem(storageKey) || "";
+
+      const storedExists = loaded.some(
+        (client) => client.id === stored
+      );
+
+      const nextId = storedExists
+        ? stored
+        : loaded[0]?.id || "";
+
+      setActiveClientId(nextId);
+
+      if (nextId) {
+        localStorage.setItem(storageKey, nextId);
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (error) {
+      console.error(
+        "Unable to load shared participants:",
+        error
+      );
+
+      setClients([]);
+      setActiveClientId("");
+      setClientsError(
+        error?.message ||
+          "Shared participants could not be loaded."
+      );
+    } finally {
+      setClientsReady(true);
+    }
+  }, [
+    user?.id,
+    organisationId,
+    role,
+    workspaceReady,
+  ]);
 
   useEffect(() => {
-    const c = loadClients();
-    setClients(c);
-
-    const stored = localStorage.getItem(STORAGE_KEY) || "";
-    const initial =
-      stored && c.some((x) => x.id === stored) ? stored : c[0]?.id || "";
-    setActiveClientId(initial);
-    if (initial) localStorage.setItem(STORAGE_KEY, initial);
-  }, []);
+    void refreshClients();
+  }, [refreshClients]);
 
   useEffect(() => {
-    if (activeClientId) localStorage.setItem(STORAGE_KEY, activeClientId);
-  }, [activeClientId]);
+    if (!activeClientId || !organisationId) {
+      return;
+    }
+
+    localStorage.setItem(
+      `${ACTIVE_PARTICIPANT_KEY}:${organisationId}`,
+      activeClientId
+    );
+  }, [activeClientId, organisationId]);
 
   const activeClient = useMemo(
-    () => clients.find((c) => c.id === activeClientId) || null,
+    () =>
+      clients.find(
+        (client) =>
+          client.id === activeClientId
+      ) || null,
     [clients, activeClientId]
   );
 
@@ -34,12 +128,24 @@ export function ActiveClientProvider({ children }) {
     () => ({
       clients,
       setClients,
+
       activeClientId,
       setActiveClientId,
       activeClient,
-      refreshClients: () => setClients(loadClients()),
+
+      clientsReady,
+      clientsError,
+
+      refreshClients,
     }),
-    [clients, activeClientId, activeClient]
+    [
+      clients,
+      activeClientId,
+      activeClient,
+      clientsReady,
+      clientsError,
+      refreshClients,
+    ]
   );
 
   return (
@@ -50,9 +156,13 @@ export function ActiveClientProvider({ children }) {
 }
 
 export function useActiveClient() {
-  const ctx = useContext(ActiveClientContext);
-  if (!ctx) {
-    throw new Error("useActiveClient must be used inside ActiveClientProvider");
+  const context = useContext(ActiveClientContext);
+
+  if (!context) {
+    throw new Error(
+      "useActiveClient must be used inside ActiveClientProvider"
+    );
   }
-  return ctx;
+
+  return context;
 }
