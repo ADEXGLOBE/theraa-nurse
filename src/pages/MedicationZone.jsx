@@ -4,7 +4,7 @@ import { loadSessions, saveSessions } from "../data/sessionStore";
 import { loadClients } from "../data/clientsStore";
 import { loadCarePlanVersions } from "../data/carePlanStore";
 import { useActiveClient } from "../context/ActiveClientContext";
-import ClientSelectorBar from "../components/ClientSelectorBar";
+// import ClientSelectorBar from "../components/ClientSelectorBar";
 import { useAuth } from "../context/AuthContext";
 
 const INITIAL_MEDICATIONS = [
@@ -635,13 +635,13 @@ export default function MedicationZone() {
         </div>
       </header>
 
-      <ClientSelectorBar
+      {/* <ClientSelectorBar
         right={
           <div className="medication-selector-hint">
             Active participant changes across all tabs.
           </div>
         }
-      />
+      /> */}
 
       <section className="medication-metric-grid">
         <MedicationMetric
