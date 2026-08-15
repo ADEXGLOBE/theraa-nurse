@@ -5616,3 +5616,243 @@ select {
     grid-column: 1 / -1;
   }
 }
+/* =========================================================
+   THERAA NURSE V3 — SHARED PARTICIPANTS
+========================================================= */
+
+.participant-workspace-badge {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.participants-v3-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.45fr)
+    minmax(340px, 0.75fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.participants-v3-left,
+.participants-v3-right {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.participant-card-pro {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.participant-card-pro:hover {
+  border-color: #a5b4fc;
+}
+
+.participant-card-selected {
+  border-color: #6366f1;
+  box-shadow:
+    0 0 0 2px
+    rgba(99, 102, 241, 0.08);
+}
+
+.participant-access-card {
+  position: sticky;
+  top: 16px;
+}
+
+.participant-access-person {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #f8fafc;
+}
+
+.participant-access-person strong,
+.participant-access-person span {
+  display: block;
+}
+
+.participant-access-person strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.participant-access-person span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.participant-assignment-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid #ddd6fe;
+  border-radius: 14px;
+  background: #faf5ff;
+}
+
+.participant-assignment-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.participant-assignment-form label > span {
+  color: #6d28d9;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.participant-assignment-heading {
+  margin-top: 18px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.participant-assignment-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.participant-assignment-row {
+  display: grid;
+  grid-template-columns:
+    auto minmax(0, 1fr)
+    minmax(105px, auto)
+    auto;
+  gap: 9px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.participant-assignment-avatar {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-weight: 900;
+}
+
+.participant-assignment-main {
+  min-width: 0;
+}
+
+.participant-assignment-main strong,
+.participant-assignment-main span,
+.participant-assignment-main small {
+  display: block;
+}
+
+.participant-assignment-main strong {
+  font-size: 11px;
+}
+
+.participant-assignment-main span {
+  margin-top: 2px;
+  color: #6366f1;
+  font-size: 9px;
+}
+
+.participant-assignment-main small {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  color: #94a3b8;
+  font-size: 8px;
+}
+
+.participant-permission-select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #ffffff;
+  padding: 5px 7px;
+  color: #475569;
+  font-size: 9px;
+}
+
+.participant-permission-guide {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.participant-permission-guide > div {
+  padding-bottom: 9px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.participant-permission-guide > div:last-child {
+  border-bottom: 0;
+}
+
+.participant-permission-guide strong,
+.participant-permission-guide span {
+  display: block;
+}
+
+.participant-permission-guide strong {
+  color: #4f46e5;
+  font-size: 10px;
+}
+
+.participant-permission-guide span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.empty-state.compact {
+  min-height: 100px;
+}
+
+@media (max-width: 1100px) {
+  .participants-v3-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .participant-access-card {
+    position: static;
+  }
+}
+
+@media (max-width: 700px) {
+  .participant-assignment-row {
+    grid-template-columns:
+      auto minmax(0, 1fr);
+  }
+
+  .participant-permission-select,
+  .participant-assignment-row
+    .btn-danger-soft {
+    grid-column: 1 / -1;
+  }
+}

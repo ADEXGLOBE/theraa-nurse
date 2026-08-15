@@ -1,6 +1,10 @@
 // src/services/patientAccessService.js
 import { supabase } from "./supabaseClient";
 
+function clean(value) {
+  return String(value ?? "").trim();
+}
+
 function mapParticipant(row, assignment = null) {
   if (!row) return null;
 
@@ -24,55 +28,65 @@ function mapParticipant(row, assignment = null) {
 
     assignmentId: assignment?.id || "",
     permissionLevel:
-      assignment?.permission_level ||
-      (assignment ? "contributor" : "manager"),
+      assignment?.permission_level || "",
   };
 }
 
-/**
- * Provider admins and managers may retrieve all participants in their
- * organisation. RLS verifies that they have permission.
- */
-async function getOrganisationParticipants(organisationId) {
+const PARTICIPANT_FIELDS = `
+  id,
+  organisation_id,
+  name,
+  age,
+  dob,
+  gender,
+  ndis_number,
+  contact_number,
+  emergency_contact,
+  address,
+  notes,
+  created_by,
+  created_at,
+  updated_at
+`;
+
+export async function getOrganisationParticipants(
+  organisationId
+) {
+  if (!organisationId) return [];
+
   const { data, error } = await supabase
     .from("participants")
-    .select(`
-      id,
-      organisation_id,
-      name,
-      age,
-      dob,
-      gender,
-      ndis_number,
-      contact_number,
-      emergency_contact,
-      address,
-      notes,
-      created_by,
-      created_at,
-      updated_at
-    `)
+    .select(PARTICIPANT_FIELDS)
     .eq("organisation_id", organisationId)
-    .order("name", { ascending: true });
+    .order("name", {
+      ascending: true,
+    });
 
   if (error) {
-    console.error("Unable to load organisation participants:", error);
+    console.error(
+      "Unable to load organisation participants:",
+      error
+    );
+
     throw new Error(
-      error.message || "Unable to load organisation participants."
+      error.message ||
+        "Unable to load organisation participants."
     );
   }
 
-  return (data || []).map((row) => mapParticipant(row));
+  return (data || []).map((row) =>
+    mapParticipant(row)
+  );
 }
 
-/**
- * Coordinators, workers, nurses and allied-health staff retrieve the
- * participants assigned to their user account.
- */
-async function getAssignedParticipants({
+export async function getAssignedParticipants({
   userId,
   organisationId,
 }) {
+  if (!userId || !organisationId) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from("participant_assignments")
     .select(`
@@ -82,44 +96,47 @@ async function getAssignedParticipants({
       user_id,
       permission_level,
       created_at,
+
       participants!participant_assignments_participant_id_fkey (
-        id,
-        organisation_id,
-        name,
-        age,
-        dob,
-        gender,
-        ndis_number,
-        contact_number,
-        emergency_contact,
-        address,
-        notes,
-        created_by,
-        created_at,
-        updated_at
+        ${PARTICIPANT_FIELDS}
       )
     `)
     .eq("user_id", userId)
     .eq("organisation_id", organisationId)
-    .order("created_at", { ascending: true });
+    .order("created_at", {
+      ascending: true,
+    });
 
   if (error) {
-    console.error("Unable to load participant assignments:", error);
+    console.error(
+      "Unable to load assigned participants:",
+      error
+    );
+
     throw new Error(
-      error.message || "Unable to load assigned participants."
+      error.message ||
+        "Unable to load assigned participants."
     );
   }
 
   return (data || [])
     .map((assignment) => {
-      const participant = Array.isArray(assignment.participants)
-        ? assignment.participants[0]
-        : assignment.participants;
+      const participant =
+        Array.isArray(
+          assignment.participants
+        )
+          ? assignment.participants[0]
+          : assignment.participants;
 
-      return mapParticipant(participant, assignment);
+      return mapParticipant(
+        participant,
+        assignment
+      );
     })
     .filter(Boolean)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 }
 
 export async function getParticipantsForWorkspace({
@@ -131,10 +148,25 @@ export async function getParticipantsForWorkspace({
     return [];
   }
 
-  if (["provider_admin", "manager"].includes(role)) {
-    return getOrganisationParticipants(organisationId);
+  /*
+   * Provider Admin and Manager can see every
+   * participant belonging to the organisation.
+   */
+  if (
+    ["provider_admin", "manager"].includes(
+      role
+    )
+  ) {
+    return getOrganisationParticipants(
+      organisationId
+    );
   }
 
+  /*
+   * Coordinators, support workers, nurses,
+   * allied health and viewers only see
+   * explicit participant assignments.
+   */
   return getAssignedParticipants({
     userId,
     organisationId,
@@ -145,38 +177,33 @@ export async function getParticipantById({
   participantId,
   organisationId,
 }) {
-  if (!participantId || !organisationId) {
+  if (
+    !participantId ||
+    !organisationId
+  ) {
     return null;
   }
 
   const { data, error } = await supabase
     .from("participants")
-    .select(`
-      id,
-      organisation_id,
-      name,
-      age,
-      dob,
-      gender,
-      ndis_number,
-      contact_number,
-      emergency_contact,
-      address,
-      notes,
-      created_by,
-      created_at,
-      updated_at
-    `)
+    .select(PARTICIPANT_FIELDS)
     .eq("id", participantId)
-    .eq("organisation_id", organisationId)
+    .eq(
+      "organisation_id",
+      organisationId
+    )
     .maybeSingle();
 
   if (error) {
-    console.error("Unable to load participant:", error);
-    throw new Error(error.message || "Unable to load participant.");
+    throw new Error(
+      error.message ||
+        "Unable to load participant."
+    );
   }
 
-  return mapParticipant(data);
+  return data
+    ? mapParticipant(data)
+    : null;
 }
 
 export async function createParticipant({
@@ -185,66 +212,241 @@ export async function createParticipant({
   participant,
 }) {
   if (!organisationId) {
-    throw new Error("organisationId is required.");
+    throw new Error(
+      "Organisation ID is required."
+    );
   }
 
   if (!userId) {
-    throw new Error("userId is required.");
+    throw new Error(
+      "User ID is required."
+    );
   }
 
-  if (!participant?.name?.trim()) {
-    throw new Error("Participant name is required.");
+  if (!clean(participant?.name)) {
+    throw new Error(
+      "Participant name is required."
+    );
   }
 
   const { data, error } = await supabase
     .from("participants")
     .insert({
-      organisation_id: organisationId,
-      name: participant.name.trim(),
-      age: participant.age ? String(participant.age) : null,
-      dob: participant.dob || null,
-      gender: participant.gender || null,
-      ndis_number: participant.ndisNumber || null,
-      contact_number: participant.contactNumber || null,
-      emergency_contact: participant.emergencyContact || null,
-      address: participant.address || null,
-      notes: participant.notes || null,
+      organisation_id:
+        organisationId,
+
+      name: clean(participant.name),
+
+      age:
+        clean(participant.age) ||
+        null,
+
+      dob:
+        clean(participant.dob) ||
+        null,
+
+      gender:
+        clean(participant.gender) ||
+        null,
+
+      ndis_number:
+        clean(
+          participant.ndisNumber
+        ) || null,
+
+      contact_number:
+        clean(
+          participant.contactNumber
+        ) || null,
+
+      emergency_contact:
+        clean(
+          participant.emergencyContact
+        ) || null,
+
+      address:
+        clean(participant.address) ||
+        null,
+
+      notes:
+        clean(participant.notes) ||
+        null,
+
       created_by: userId,
     })
-    .select()
+    .select(PARTICIPANT_FIELDS)
     .single();
 
   if (error) {
-    console.error("Unable to create participant:", error);
-    throw new Error(error.message || "Unable to create participant.");
+    console.error(
+      "Unable to create participant:",
+      error
+    );
+
+    throw new Error(
+      error.message ||
+        "Unable to create participant."
+    );
   }
 
   /*
-   * Automatically assign the creator as participant manager.
-   * Provider admins can already see all participants through organisation
-   * membership, but this also establishes an explicit assignment.
+   * Give the creator an explicit manager
+   * assignment as well.
    */
-  const { error: assignmentError } = await supabase
-    .from("participant_assignments")
-    .insert({
-      organisation_id: organisationId,
-      participant_id: data.id,
-      user_id: userId,
-      permission_level: "manager",
-      assigned_by: userId,
-    });
+  const { error: assignmentError } =
+    await supabase
+      .from("participant_assignments")
+      .upsert(
+        {
+          organisation_id:
+            organisationId,
 
-  if (
-    assignmentError &&
-    assignmentError.code !== "23505"
-  ) {
-    console.error(
+          participant_id:
+            data.id,
+
+          user_id: userId,
+
+          permission_level:
+            "manager",
+
+          assigned_by:
+            userId,
+        },
+        {
+          onConflict:
+            "participant_id,user_id",
+        }
+      );
+
+  if (assignmentError) {
+    console.warn(
       "Participant created but creator assignment failed:",
       assignmentError
     );
   }
 
   return mapParticipant(data);
+}
+
+export async function updateParticipant({
+  participantId,
+  organisationId,
+  participant,
+}) {
+  if (
+    !participantId ||
+    !organisationId
+  ) {
+    throw new Error(
+      "Participant ID and organisation ID are required."
+    );
+  }
+
+  if (!clean(participant?.name)) {
+    throw new Error(
+      "Participant name is required."
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("participants")
+    .update({
+      name: clean(participant.name),
+
+      age:
+        clean(participant.age) ||
+        null,
+
+      dob:
+        clean(participant.dob) ||
+        null,
+
+      gender:
+        clean(participant.gender) ||
+        null,
+
+      ndis_number:
+        clean(
+          participant.ndisNumber
+        ) || null,
+
+      contact_number:
+        clean(
+          participant.contactNumber
+        ) || null,
+
+      emergency_contact:
+        clean(
+          participant.emergencyContact
+        ) || null,
+
+      address:
+        clean(participant.address) ||
+        null,
+
+      notes:
+        clean(participant.notes) ||
+        null,
+
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", participantId)
+    .eq(
+      "organisation_id",
+      organisationId
+    )
+    .select(PARTICIPANT_FIELDS)
+    .single();
+
+  if (error) {
+    console.error(
+      "Unable to update participant:",
+      error
+    );
+
+    throw new Error(
+      error.message ||
+        "Unable to update participant."
+    );
+  }
+
+  return mapParticipant(data);
+}
+
+export async function deleteParticipant({
+  participantId,
+  organisationId,
+}) {
+  if (
+    !participantId ||
+    !organisationId
+  ) {
+    throw new Error(
+      "Participant ID and organisation ID are required."
+    );
+  }
+
+  const { error } = await supabase
+    .from("participants")
+    .delete()
+    .eq("id", participantId)
+    .eq(
+      "organisation_id",
+      organisationId
+    );
+
+  if (error) {
+    console.error(
+      "Unable to delete participant:",
+      error
+    );
+
+    throw new Error(
+      error.message ||
+        "Unable to delete participant."
+    );
+  }
 }
 
 export async function assignUserToParticipant({
@@ -254,27 +456,46 @@ export async function assignUserToParticipant({
   assignedBy,
   permissionLevel = "contributor",
 }) {
+  if (
+    !organisationId ||
+    !participantId ||
+    !userId
+  ) {
+    throw new Error(
+      "Organisation, participant and team member are required."
+    );
+  }
+
   const { data, error } = await supabase
     .from("participant_assignments")
     .upsert(
       {
-        organisation_id: organisationId,
-        participant_id: participantId,
+        organisation_id:
+          organisationId,
+
+        participant_id:
+          participantId,
+
         user_id: userId,
-        permission_level: permissionLevel,
-        assigned_by: assignedBy,
+
+        permission_level:
+          permissionLevel,
+
+        assigned_by:
+          assignedBy || null,
       },
       {
-        onConflict: "participant_id,user_id",
+        onConflict:
+          "participant_id,user_id",
       }
     )
     .select()
     .single();
 
   if (error) {
-    console.error("Unable to assign participant access:", error);
     throw new Error(
-      error.message || "Unable to assign participant access."
+      error.message ||
+        "Unable to assign participant access."
     );
   }
 
