@@ -37,13 +37,13 @@ function normaliseEmail(value) {
 }
 
 export function getTeamRoleLabel(role) {
-  const item = TEAM_ROLES.find(
-    (option) => option.value === role
-  );
-
   if (role === "provider_admin") {
     return "Provider Admin";
   }
+
+  const item = TEAM_ROLES.find(
+    (option) => option.value === role
+  );
 
   return item?.label || "Workspace Member";
 }
@@ -69,6 +69,11 @@ export async function listOrganisationMembers(
     });
 
   if (error) {
+    console.error(
+      "Unable to load organisation members:",
+      error
+    );
+
     throw new Error(
       error.message ||
         "Unable to load team members."
@@ -105,6 +110,11 @@ export async function listOrganisationInvitations(
     });
 
   if (error) {
+    console.error(
+      "Unable to load organisation invitations:",
+      error
+    );
+
     throw new Error(
       error.message ||
         "Unable to load invitations."
@@ -133,23 +143,28 @@ export async function createTeamInvitation({
     );
   }
 
-  if (!clean(fullName)) {
+  const cleanedName = clean(fullName);
+
+  if (!cleanedName) {
     throw new Error(
       "Enter the team member's name."
     );
   }
 
-  if (!normaliseEmail(email)) {
+  const normalisedEmail =
+    normaliseEmail(email);
+
+  if (!normalisedEmail) {
     throw new Error(
       "Enter the team member's email."
     );
   }
 
-  if (
-    !TEAM_ROLES.some(
-      (item) => item.value === role
-    )
-  ) {
+  const validRole = TEAM_ROLES.some(
+    (item) => item.value === role
+  );
+
+  if (!validRole) {
     throw new Error(
       "Select a valid team role."
     );
@@ -158,6 +173,9 @@ export async function createTeamInvitation({
   /*
    * Cancel any previous pending invitation
    * for the same organisation and email.
+   *
+   * This allows an admin to resend an invitation
+   * without manually cleaning up the old pending record.
    */
   const { error: cancelError } =
     await supabase
@@ -169,16 +187,21 @@ export async function createTeamInvitation({
         "organisation_id",
         organisationId
       )
-      .eq(
+      .ilike(
         "email",
-        normaliseEmail(email)
+        normalisedEmail
       )
       .eq("status", "pending");
 
   if (cancelError) {
+    console.error(
+      "Unable to cancel previous invitation:",
+      cancelError
+    );
+
     throw new Error(
       cancelError.message ||
-        "Unable to replace the previous invitation."
+        "Unable to replace the existing invitation."
     );
   }
 
@@ -186,8 +209,8 @@ export async function createTeamInvitation({
     .from("organisation_invitations")
     .insert({
       organisation_id: organisationId,
-      email: normaliseEmail(email),
-      full_name: clean(fullName),
+      email: normalisedEmail,
+      full_name: cleanedName,
       role,
       invited_by: invitedBy,
     })
@@ -195,6 +218,17 @@ export async function createTeamInvitation({
     .single();
 
   if (error) {
+    console.error(
+      "Unable to create team invitation:",
+      error
+    );
+
+    if (error.code === "23505") {
+      throw new Error(
+        "A pending invitation already exists for this email. Cancel it or copy the existing invitation link."
+      );
+    }
+
     throw new Error(
       error.message ||
         "Unable to create invitation."
@@ -207,22 +241,41 @@ export async function createTeamInvitation({
 export async function cancelTeamInvitation(
   invitationId
 ) {
-  if (!invitationId) return;
+  if (!invitationId) {
+    throw new Error(
+      "Invitation ID is required."
+    );
+  }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("organisation_invitations")
     .update({
       status: "cancelled",
     })
     .eq("id", invitationId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select()
+    .maybeSingle();
 
   if (error) {
+    console.error(
+      "Unable to cancel invitation:",
+      error
+    );
+
     throw new Error(
       error.message ||
         "Unable to cancel invitation."
     );
   }
+
+  if (!data) {
+    throw new Error(
+      "This invitation is no longer pending or could not be found."
+    );
+  }
+
+  return data;
 }
 
 export async function lookupInvitation(
@@ -236,20 +289,28 @@ export async function lookupInvitation(
     );
   }
 
-  const { data, error } = await supabase
-    .rpc("lookup_theraa_invitation", {
+  const { data, error } = await supabase.rpc(
+    "lookup_theraa_invitation",
+    {
       invitation_token:
         invitationToken,
-    });
+    }
+  );
 
   if (error) {
+    console.error(
+      "Unable to look up invitation:",
+      error
+    );
+
     throw new Error(
       error.message ||
         "Invitation could not be checked."
     );
   }
 
-  const invitation = data?.[0] || null;
+  const invitation =
+    data?.[0] || null;
 
   if (!invitation) {
     throw new Error(
@@ -266,9 +327,13 @@ export async function lookupInvitation(
     );
   }
 
+  const expiresAt = new Date(
+    invitation.expires_at
+  ).getTime();
+
   if (
-    new Date(invitation.expires_at).getTime() <
-    Date.now()
+    Number.isFinite(expiresAt) &&
+    expiresAt < Date.now()
   ) {
     throw new Error(
       "This invitation has expired."
@@ -278,14 +343,24 @@ export async function lookupInvitation(
   return invitation;
 }
 
-export function buildInvitationLink(token) {
+export function buildInvitationLink(
+  token
+) {
+  const invitationToken = clean(token);
+
+  if (!invitationToken) {
+    throw new Error(
+      "Invitation token is required."
+    );
+  }
+
   const url = new URL(
     window.location.origin
   );
 
   url.searchParams.set(
     "invite",
-    token
+    invitationToken
   );
 
   return url.toString();
