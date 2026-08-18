@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -447,12 +448,13 @@ export default function ParticipantTimeline() {
 
   const fallbackId = clients[0]?.id || "";
 
-  const [
-    selectedClientId,
-    setSelectedClientId,
-  ] = useState(
-    activeClientId || fallbackId
-  );
+  // ActiveClientContext is the single source of truth.
+  const selectedClientId =
+    activeClientId || fallbackId;
+
+  // Prevent stale async responses from a previous participant.
+  const sessionRequestRef = useRef(0);
+  const documentRequestRef = useRef(0);
 
   const [
     documents,
@@ -490,43 +492,20 @@ export default function ParticipantTimeline() {
   ========================================================= */
 
   useEffect(() => {
-    if (
-      activeClientId &&
-      activeClientId !== selectedClientId
-    ) {
-      setSelectedClientId(activeClientId);
+    if (!activeClientId && fallbackId) {
+      setActiveClientId(fallbackId);
     }
-  }, [
-    activeClientId,
-    selectedClientId,
-  ]);
-
+  }, [activeClientId, fallbackId, setActiveClientId]);
 
   useEffect(() => {
-    if (
-      !selectedClientId &&
-      fallbackId
-    ) {
-      setSelectedClientId(fallbackId);
-    }
-  }, [
-    fallbackId,
-    selectedClientId,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      selectedClientId &&
-      selectedClientId !== activeClientId
-    ) {
-      setActiveClientId(selectedClientId);
-    }
-  }, [
-    selectedClientId,
-    activeClientId,
-    setActiveClientId,
-  ]);
+    // Invalidate old participant requests and clear stale UI.
+    sessionRequestRef.current += 1;
+    documentRequestRef.current += 1;
+    setSharedSessions([]);
+    setDocuments([]);
+    setErrorMessage("");
+    setFilter("all");
+  }, [selectedClientId]);
 
 
   const selectedClient = useMemo(
@@ -548,51 +527,49 @@ export default function ParticipantTimeline() {
 
   const refreshSessions = useCallback(
     async () => {
-      if (
-        !organisationId ||
-        !selectedClientId
-      ) {
+      const participantId = selectedClientId;
+
+      if (!organisationId || !participantId) {
         setSharedSessions([]);
+        setLoadingSessions(false);
         return;
       }
 
+      const requestId = ++sessionRequestRef.current;
       setLoadingSessions(true);
       setErrorMessage("");
 
       try {
-        const sessions =
-          await loadParticipantSessions({
-            organisationId,
-            participantId: selectedClientId,
-          });
+        const sessions = await loadParticipantSessions({
+          organisationId,
+          participantId,
+        });
+
+        if (requestId !== sessionRequestRef.current) return;
 
         setSharedSessions(
-          Array.isArray(sessions)
-            ? sessions
-            : []
+          Array.isArray(sessions) ? sessions : []
         );
       } catch (error) {
+        if (requestId !== sessionRequestRef.current) return;
+
         console.error(
           "Unable to load participant timeline sessions:",
           error
         );
-
         setSharedSessions([]);
-
         setErrorMessage(
           error?.message ||
             "Unable to load shared participant activity."
         );
       } finally {
-        setLoadingSessions(false);
+        if (requestId === sessionRequestRef.current) {
+          setLoadingSessions(false);
+        }
       }
     },
-    [
-      organisationId,
-      selectedClientId,
-    ]
+    [organisationId, selectedClientId]
   );
-
 
   useEffect(() => {
     void refreshSessions();
@@ -608,40 +585,34 @@ export default function ParticipantTimeline() {
   ========================================================= */
 
   useEffect(() => {
-    let cancelled = false;
+    const participantId = selectedClientId;
+
+    if (!participantId) {
+      setDocuments([]);
+      setLoadingDocuments(false);
+      return;
+    }
+
+    const requestId = ++documentRequestRef.current;
+    setLoadingDocuments(true);
 
     async function loadDocs() {
-      if (!selectedClientId) {
-        setDocuments([]);
-        return;
-      }
-
-      setLoadingDocuments(true);
-
       try {
-        const docs =
-          await listDocumentsForClient(
-            selectedClientId
-          );
+        const docs = await listDocumentsForClient(participantId);
 
-        if (!cancelled) {
-          setDocuments(
-            Array.isArray(docs)
-              ? docs
-              : []
-          );
-        }
+        if (requestId !== documentRequestRef.current) return;
+
+        setDocuments(Array.isArray(docs) ? docs : []);
       } catch (error) {
+        if (requestId !== documentRequestRef.current) return;
+
         console.error(
           "Unable to load participant documents:",
           error
         );
-
-        if (!cancelled) {
-          setDocuments([]);
-        }
+        setDocuments([]);
       } finally {
-        if (!cancelled) {
+        if (requestId === documentRequestRef.current) {
           setLoadingDocuments(false);
         }
       }
@@ -650,7 +621,9 @@ export default function ParticipantTimeline() {
     void loadDocs();
 
     return () => {
-      cancelled = true;
+      if (requestId === documentRequestRef.current) {
+        documentRequestRef.current += 1;
+      }
     };
   }, [selectedClientId]);
 
@@ -1121,7 +1094,7 @@ export default function ParticipantTimeline() {
             selectedClientId
           }
           onChange={(event) =>
-            setSelectedClientId(
+            setActiveClientId(
               event.target.value
             )
           }
