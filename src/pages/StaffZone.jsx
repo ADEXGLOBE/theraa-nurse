@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -341,12 +342,24 @@ export default function StaffZone() {
   const fallbackId =
     clients[0]?.id || "";
 
-  const [
-    selectedClientId,
-    setSelectedClientId,
-  ] = useState(
-    activeClientId || fallbackId
-  );
+  /*
+   * V3 participant-selection rule:
+   * ActiveClientContext is the single source of truth.
+   *
+   * Do not keep a second selectedClientId state here.
+   * Doing so creates a two-way synchronisation loop when
+   * switching participants across Theraa Nurse.
+   */
+  const selectedClientId =
+    activeClientId || fallbackId;
+
+  /*
+   * Each participant-history request receives a sequence
+   * number. If an older request resolves after the user has
+   * already selected somebody else, its result is ignored.
+   */
+  const sessionRequestRef =
+    useRef(0);
 
   const [
     allSessions,
@@ -450,65 +463,60 @@ export default function StaffZone() {
     "manager",
   ].includes(role);
 
+  /*
+   * Initialise the global active participant only when no
+   * participant is currently selected.
+   */
   useEffect(() => {
     if (
-      activeClientId &&
-      activeClientId !==
-        selectedClientId
-    ) {
-      setSelectedClientId(
-        activeClientId
-      );
-    }
-  }, [
-    activeClientId,
-    selectedClientId,
-  ]);
-
-  useEffect(() => {
-    if (
-      !selectedClientId &&
+      !activeClientId &&
       fallbackId
     ) {
-      setSelectedClientId(
+      setActiveClientId(
         fallbackId
       );
     }
   }, [
-    fallbackId,
-    selectedClientId,
-  ]);
-
-  /*
-   * Keep the global participant selector
-   * synced when the user selects somebody
-   * from Staff Notes.
-   */
-  useEffect(() => {
-    if (
-      selectedClientId &&
-      selectedClientId !==
-        activeClientId
-    ) {
-      setActiveClientId(
-        selectedClientId
-      );
-    }
-  }, [
-    selectedClientId,
     activeClientId,
+    fallbackId,
     setActiveClientId,
   ]);
 
+  /*
+   * When the participant changes:
+   * - invalidate any in-flight history request
+   * - clear the old participant's visible history
+   * - clear transient errors
+   * - reset the unsaved Staff Note draft
+   *
+   * This prevents notes started for one participant from
+   * being accidentally saved against another participant.
+   */
+  useEffect(() => {
+    sessionRequestRef.current += 1;
+
+    setAllSessions({});
+    setSessionError("");
+
+    resetForm();
+  }, [selectedClientId]);
+
   const refreshSessions =
     useCallback(async () => {
+      const participantId =
+        selectedClientId;
+
       if (
         !organisationId ||
-        !selectedClientId
+        !participantId
       ) {
         setAllSessions({});
+        setSessionsLoading(false);
         return;
       }
+
+      const requestId =
+        ++sessionRequestRef.current;
 
       setSessionsLoading(true);
       setSessionError("");
@@ -517,27 +525,48 @@ export default function StaffZone() {
         const sessions =
           await loadParticipantSessions({
             organisationId,
-            participantId:
-              selectedClientId,
+            participantId,
           });
 
         /*
-         * Keep the old V2 map shape
-         * so existing reporting code
-         * continues working.
+         * Ignore a late response belonging to a participant
+         * who is no longer active.
+         */
+        if (
+          requestId !==
+          sessionRequestRef.current
+        ) {
+          return;
+        }
+
+        /*
+         * Keep the old V2 map shape so existing reporting
+         * and cross-zone calculations continue to work.
          */
         setAllSessions({
-          [selectedClientId]:
+          [participantId]:
             sessions,
         });
       } catch (error) {
+        /*
+         * If the user has already moved to another
+         * participant, do not surface an obsolete request
+         * failure in the current participant's UI.
+         */
+        if (
+          requestId !==
+          sessionRequestRef.current
+        ) {
+          return;
+        }
+
         console.error(
           "Unable to refresh Staff Notes:",
           error
         );
 
         setAllSessions({
-          [selectedClientId]: [],
+          [participantId]: [],
         });
 
         setSessionError(
@@ -545,7 +574,16 @@ export default function StaffZone() {
             "Unable to load shared participant sessions."
         );
       } finally {
-        setSessionsLoading(false);
+        /*
+         * Only the currently valid request is allowed to
+         * control the loading indicator.
+         */
+        if (
+          requestId ===
+          sessionRequestRef.current
+        ) {
+          setSessionsLoading(false);
+        }
       }
     }, [
       organisationId,
@@ -553,8 +591,8 @@ export default function StaffZone() {
     ]);
 
   /*
-   * Every participant change now fetches
-   * the shared history from Supabase.
+   * Fetch the active participant's shared history once per
+   * participant/workspace change.
    */
   useEffect(() => {
     void refreshSessions();
@@ -1227,7 +1265,7 @@ export default function StaffZone() {
                   onChange={(
                     event
                   ) =>
-                    setSelectedClientId(
+                    setActiveClientId(
                       event.target
                         .value
                     )
