@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -497,13 +498,22 @@ export default function TherapyZone() {
   const fallbackId =
     clients[0]?.id || "";
 
-  const [
-    selectedClientId,
-    setSelectedClientId,
-  ] = useState(
-    activeClientId ||
-      fallbackId
-  );
+  /*
+   * V3 participant selection rule:
+   * ActiveClientContext is the single source of truth.
+   * Therapy must not maintain a second local participant ID,
+   * otherwise the two states can fight each other and cause
+   * repeated refreshes / visual twitching.
+   */
+  const selectedClientId =
+    activeClientId || fallbackId;
+
+  /*
+   * Used to ignore stale Supabase responses when the user
+   * switches participants quickly.
+   */
+  const sessionRequestRef =
+    useRef(0);
 
 
   const [
@@ -634,61 +644,29 @@ export default function TherapyZone() {
 
 
   /*
-   * Keep Therapy selector synced
-   * with the global active participant.
+   * Initialise / repair the global active participant once.
+   * This is one-way only: the global context owns selection.
    */
   useEffect(() => {
-    if (
-      activeClientId &&
-      activeClientId !==
-        selectedClientId
-    ) {
-      setSelectedClientId(
-        activeClientId
-      );
+    if (!fallbackId) {
+      return;
     }
-  }, [
-    activeClientId,
-    selectedClientId,
-  ]);
 
+    const activeParticipantExists =
+      clients.some(
+        (client) =>
+          client.id === activeClientId
+      );
 
-  /*
-   * If the user has participants but
-   * there is no selection, select the first.
-   */
-  useEffect(() => {
-    if (
-      !selectedClientId &&
-      fallbackId
-    ) {
-      setSelectedClientId(
+    if (!activeParticipantExists) {
+      setActiveClientId(
         fallbackId
       );
     }
   }, [
-    fallbackId,
-    selectedClientId,
-  ]);
-
-
-  /*
-   * Selecting a participant inside Therapy
-   * updates the global participant context.
-   */
-  useEffect(() => {
-    if (
-      selectedClientId &&
-      selectedClientId !==
-        activeClientId
-    ) {
-      setActiveClientId(
-        selectedClientId
-      );
-    }
-  }, [
-    selectedClientId,
     activeClientId,
+    clients,
+    fallbackId,
     setActiveClientId,
   ]);
 
@@ -703,18 +681,34 @@ export default function TherapyZone() {
   const refreshSessions =
     useCallback(
       async () => {
+        const requestId =
+          ++sessionRequestRef.current;
+
+        const participantId =
+          selectedClientId;
+
         if (
           !organisationId ||
-          !selectedClientId
+          !participantId
         ) {
-          setAllSessions({});
+          if (
+            requestId ===
+            sessionRequestRef.current
+          ) {
+            setAllSessions({});
+            setSessionsLoading(false);
+          }
+
           return;
         }
 
-        setSessionsLoading(
-          true
-        );
-
+        /*
+         * Clear the previous participant's data immediately so
+         * the header / metrics never display mixed participant
+         * information while the new request is loading.
+         */
+        setAllSessions({});
+        setSessionsLoading(true);
         setSessionError("");
 
         try {
@@ -722,25 +716,40 @@ export default function TherapyZone() {
             await loadParticipantSessions(
               {
                 organisationId,
-
-                participantId:
-                  selectedClientId,
+                participantId,
               }
             );
 
+          /*
+           * The user may have selected another participant while
+           * this request was in flight. Ignore stale responses.
+           */
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
           setAllSessions({
-            [selectedClientId]:
+            [participantId]:
               sessions,
           });
         } catch (error) {
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
           console.error(
             "Unable to load shared Therapy sessions:",
             error
           );
 
           setAllSessions({
-            [selectedClientId]:
-              [],
+            [participantId]: [],
           });
 
           setSessionError(
@@ -748,9 +757,12 @@ export default function TherapyZone() {
               "Unable to load shared participant sessions."
           );
         } finally {
-          setSessionsLoading(
-            false
-          );
+          if (
+            requestId ===
+            sessionRequestRef.current
+          ) {
+            setSessionsLoading(false);
+          }
         }
       },
       [
@@ -1926,7 +1938,7 @@ export default function TherapyZone() {
                   onChange={(
                     event
                   ) =>
-                    setSelectedClientId(
+                    setActiveClientId(
                       event.target
                         .value
                     )
