@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -405,13 +406,13 @@ export default function MedicationZone() {
     clients[0]?.id || "";
 
 
-  const [
-    selectedClientId,
-    setSelectedClientId,
-  ] = useState(
+  const selectedClientId =
     activeClientId ||
-      fallbackId
-  );
+    fallbackId;
+
+
+  const sessionRequestRef =
+    useRef(0);
 
 
   const [
@@ -526,62 +527,68 @@ export default function MedicationZone() {
 
 
   /*
-   * Sync with the globally selected participant.
+   * ActiveClientContext is the single source of truth
+   * for participant selection across Theraa Nurse.
    */
   useEffect(() => {
     if (
-      activeClientId &&
-      activeClientId !==
-        selectedClientId
-    ) {
-      setSelectedClientId(
-        activeClientId
-      );
-    }
-  }, [
-    activeClientId,
-    selectedClientId,
-  ]);
-
-
-  /*
-   * Select the first authorised participant
-   * if no participant is currently active.
-   */
-  useEffect(() => {
-    if (
-      !selectedClientId &&
+      !activeClientId &&
       fallbackId
     ) {
-      setSelectedClientId(
+      setActiveClientId(
         fallbackId
       );
     }
   }, [
+    activeClientId,
     fallbackId,
-    selectedClientId,
+    setActiveClientId,
   ]);
 
 
   /*
-   * Selecting a participant from Medication
-   * updates the global participant context.
+   * Clear participant-specific, unsaved medication data
+   * immediately when the active participant changes.
+   * This prevents one participant's draft from being
+   * accidentally saved against another participant.
    */
   useEffect(() => {
-    if (
-      selectedClientId &&
-      selectedClientId !==
-        activeClientId
-    ) {
-      setActiveClientId(
-        selectedClientId
-      );
-    }
-  }, [
-    selectedClientId,
-    activeClientId,
-    setActiveClientId,
-  ]);
+    setAllSessions(
+      selectedClientId
+        ? {
+            [selectedClientId]: [],
+          }
+        : {}
+    );
+
+    setSessionError("");
+
+    setMedications(
+      INITIAL_MEDICATIONS.map(
+        (medication) => ({
+          ...medication,
+        })
+      )
+    );
+
+    setNewMedication({
+      name: "",
+      dose: "",
+      route: "Oral",
+      frequency: "",
+      type: "Regular",
+    });
+
+    setAllergies("");
+    setSideEffects([]);
+    setPrnReason("");
+    setPrnOutcome("");
+    setFollowUpRequired(false);
+    setFollowUpReason("");
+    setPrescriberContacted(false);
+    setPharmacyContacted(false);
+    setNotes("");
+  }, [selectedClientId]);
 
 
   /*
@@ -591,11 +598,24 @@ export default function MedicationZone() {
   const refreshSessions =
     useCallback(
       async () => {
+        const requestId =
+          ++sessionRequestRef.current;
+
+        const participantId =
+          selectedClientId;
+
         if (
           !organisationId ||
-          !selectedClientId
+          !participantId
         ) {
-          setAllSessions({});
+          if (
+            requestId ===
+            sessionRequestRef.current
+          ) {
+            setAllSessions({});
+            setSessionsLoading(false);
+          }
+
           return;
         }
 
@@ -611,24 +631,43 @@ export default function MedicationZone() {
               {
                 organisationId,
 
-                participantId:
-                  selectedClientId,
+                participantId,
               }
             );
 
+          /*
+           * Ignore stale responses. If the user switches
+           * participants before this request finishes, only
+           * the newest request is allowed to update the UI.
+           */
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
           setAllSessions({
-            [selectedClientId]:
-              sessions,
+            [participantId]:
+              Array.isArray(sessions)
+                ? sessions
+                : [],
           });
         } catch (error) {
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
           console.error(
             "Unable to load shared medication sessions:",
             error
           );
 
           setAllSessions({
-            [selectedClientId]:
-              [],
+            [participantId]: [],
           });
 
           setSessionError(
@@ -636,9 +675,14 @@ export default function MedicationZone() {
               "Unable to load shared participant sessions."
           );
         } finally {
-          setSessionsLoading(
-            false
-          );
+          if (
+            requestId ===
+            sessionRequestRef.current
+          ) {
+            setSessionsLoading(
+              false
+            );
+          }
         }
       },
       [
@@ -909,6 +953,8 @@ export default function MedicationZone() {
           })
         )
     );
+
+    setAllergies("");
 
     setSideEffects([]);
 
@@ -1447,7 +1493,7 @@ export default function MedicationZone() {
                 onChange={(
                   event
                 ) =>
-                  setSelectedClientId(
+                  setActiveClientId(
                     event.target
                       .value
                   )
