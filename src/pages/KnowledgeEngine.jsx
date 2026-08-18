@@ -567,6 +567,11 @@ export default function KnowledgeEngine() {
   const fileInputRef =
     useRef(null);
 
+  // Prevent an older Supabase request from overwriting
+  // evidence for a participant selected more recently.
+  const evidenceRequestRef =
+    useRef(0);
+
   const {
     user,
   } = useAuth();
@@ -620,13 +625,22 @@ export default function KnowledgeEngine() {
     clients[0]?.id ||
     "";
 
-  const [
-    selectedParticipantId,
-    setSelectedParticipantId,
-  ] = useState(
-    activeClientId ||
-      fallbackId
-  );
+  // ActiveClientContext is the single source of truth.
+  // This avoids two local/global participant states
+  // repeatedly trying to synchronise with each other.
+  const activeClientIsAvailable =
+    Boolean(
+      activeClientId &&
+        clients.some(
+          (client) =>
+            client.id === activeClientId
+        )
+    );
+
+  const selectedParticipantId =
+    activeClientIsAvailable
+      ? activeClientId
+      : fallbackId;
 
   const [
     sessions,
@@ -707,51 +721,36 @@ export default function KnowledgeEngine() {
      PARTICIPANT SELECTION
   ======================================================= */
 
+  // Initialise / repair the global participant selection once.
+  // There is no reverse syncing effect, so switching participants
+  // cannot create a state-update loop.
   useEffect(() => {
     if (
-      activeClientId &&
-      activeClientId !==
-        selectedParticipantId
+      fallbackId &&
+      !activeClientIsAvailable
     ) {
-      setSelectedParticipantId(
-        activeClientId
-      );
-    }
-  }, [
-    activeClientId,
-    selectedParticipantId,
-  ]);
-
-
-  useEffect(() => {
-    if (
-      !selectedParticipantId &&
-      fallbackId
-    ) {
-      setSelectedParticipantId(
+      setActiveClientId(
         fallbackId
       );
     }
   }, [
     fallbackId,
-    selectedParticipantId,
+    activeClientIsAvailable,
+    setActiveClientId,
   ]);
 
 
+  // Participant-specific AI/manual state must never carry across
+  // to the next participant.
   useEffect(() => {
-    if (
-      selectedParticipantId &&
-      selectedParticipantId !==
-        activeClientId
-    ) {
-      setActiveClientId(
-        selectedParticipantId
-      );
-    }
+    setAiResult("");
+    setAnalysisError("");
+    setAnalysisMeta(null);
+    setEvidenceError("");
+    setManualEvidence("");
+    setIncludeManualEvidence(false);
   }, [
     selectedParticipantId,
-    activeClientId,
-    setActiveClientId,
   ]);
 
 
@@ -777,11 +776,18 @@ export default function KnowledgeEngine() {
   const refreshParticipantEvidence =
     useCallback(
       async () => {
+        // Every refresh gets a sequence number. Only the latest
+        // request is allowed to update the visible participant.
+        const requestId =
+          ++evidenceRequestRef.current;
+
         if (
           !organisationId ||
           !selectedParticipantId
         ) {
           setSessions([]);
+          setSessionsLoading(false);
+          setEvidenceError("");
           return;
         }
 
@@ -802,6 +808,15 @@ export default function KnowledgeEngine() {
               }
             );
 
+          // Ignore a response that belongs to an older participant
+          // selection or an earlier manual refresh.
+          if (
+            requestId !==
+            evidenceRequestRef.current
+          ) {
+            return;
+          }
+
           setSessions(
             Array.isArray(
               loaded
@@ -810,6 +825,13 @@ export default function KnowledgeEngine() {
               : []
           );
         } catch (error) {
+          if (
+            requestId !==
+            evidenceRequestRef.current
+          ) {
+            return;
+          }
+
           console.error(
             "Knowledge Engine evidence load failed:",
             error
@@ -822,9 +844,14 @@ export default function KnowledgeEngine() {
               "Unable to load participant evidence."
           );
         } finally {
-          setSessionsLoading(
-            false
-          );
+          if (
+            requestId ===
+            evidenceRequestRef.current
+          ) {
+            setSessionsLoading(
+              false
+            );
+          }
         }
       },
       [
@@ -1517,11 +1544,13 @@ export default function KnowledgeEngine() {
             value={
               selectedParticipantId
             }
-            onChange={(event) =>
-              setSelectedParticipantId(
+            onChange={(event) => {
+              // Update only the global participant selection.
+              // KnowledgeEngine derives its selection from it.
+              setActiveClientId(
                 event.target.value
-              )
-            }
+              );
+            }}
           >
 
             {!clients.length ? (
