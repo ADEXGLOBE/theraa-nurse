@@ -1,11 +1,34 @@
 // src/pages/MedicationZone.jsx
-import { useEffect, useMemo, useState } from "react";
-import { loadSessions, saveSessions } from "../data/sessionStore";
-import { loadClients } from "../data/clientsStore";
-import { loadCarePlanVersions } from "../data/carePlanStore";
-import { useActiveClient } from "../context/ActiveClientContext";
-// import ClientSelectorBar from "../components/ClientSelectorBar";
-import { useAuth } from "../context/AuthContext";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  loadCarePlanVersions,
+} from "../data/carePlanStore";
+
+import {
+  useActiveClient,
+} from "../context/ActiveClientContext";
+
+import {
+  useAuth,
+} from "../context/AuthContext";
+
+import {
+  useWorkspace,
+} from "../context/WorkspaceContext";
+
+import {
+  createParticipantSession,
+  deleteParticipantSession,
+  loadParticipantSessions,
+} from "../services/sessionService";
+
 
 const INITIAL_MEDICATIONS = [
   {
@@ -37,6 +60,7 @@ const INITIAL_MEDICATIONS = [
   },
 ];
 
+
 const MEDICATION_STATUSES = [
   "Not recorded",
   "Taken",
@@ -47,6 +71,7 @@ const MEDICATION_STATUSES = [
   "Withheld",
   "Not required",
 ];
+
 
 const ROUTES = [
   "Oral",
@@ -59,6 +84,7 @@ const ROUTES = [
   "Other",
 ];
 
+
 const MEDICATION_TYPES = [
   "Regular",
   "PRN",
@@ -66,6 +92,7 @@ const MEDICATION_TYPES = [
   "Supplement",
   "Other",
 ];
+
 
 const SIDE_EFFECT_OPTIONS = [
   "Dizziness",
@@ -80,13 +107,20 @@ const SIDE_EFFECT_OPTIONS = [
   "No side effects observed",
 ];
 
+
 function safe(value) {
-  return value == null ? "" : String(value);
+  return value == null
+    ? ""
+    : String(value);
 }
 
+
 function asArray(value) {
-  return Array.isArray(value) ? value.filter(Boolean) : [];
+  return Array.isArray(value)
+    ? value.filter(Boolean)
+    : [];
 }
+
 
 function uid(prefix = "item") {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
@@ -94,63 +128,133 @@ function uid(prefix = "item") {
     .slice(2)}`;
 }
 
+
 function formatDateTime(value) {
-  if (!value) return "Date unavailable";
+  if (!value) {
+    return "Date unavailable";
+  }
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return "Date unavailable";
   }
 
   return date.toLocaleString();
 }
 
+
 function daysAgo(value) {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return null;
   }
 
   return Math.max(
     0,
     Math.floor(
-      (Date.now() - date.getTime()) /
-        (1000 * 60 * 60 * 24)
+      (
+        Date.now() -
+        date.getTime()
+      ) /
+        (
+          1000 *
+          60 *
+          60 *
+          24
+        )
     )
   );
 }
 
-function getMedicationSessions(allSessions, clientId) {
-  return asArray(allSessions?.[clientId]).filter(
-    (session) => session?.zone === "meds"
+
+function getMedicationSessions(
+  allSessions,
+  clientId
+) {
+  return asArray(
+    allSessions?.[
+      clientId
+    ]
+  ).filter(
+    (session) =>
+      session?.zone ===
+      "meds"
   );
 }
 
-function getCrossZoneSessions(allSessions, clientId) {
-  return asArray(allSessions?.[clientId]).filter((session) =>
-    ["therapy", "meds", "paramedic", "staff", "vpn"].includes(
+
+function getCrossZoneSessions(
+  allSessions,
+  clientId
+) {
+  return asArray(
+    allSessions?.[
+      clientId
+    ]
+  ).filter((session) =>
+    [
+      "therapy",
+      "meds",
+      "paramedic",
+      "staff",
+      "vpn",
+    ].includes(
       session?.zone
     )
   );
 }
 
-function getLatestCarePlan(clientId, ownerId) {
-  if (!clientId) return null;
+
+/*
+ * Care Plans are still using the
+ * legacy local store temporarily.
+ *
+ * They will be migrated after
+ * Medication shared sessions.
+ */
+function getLatestCarePlan(
+  clientId,
+  ownerId
+) {
+  if (!clientId) {
+    return null;
+  }
 
   try {
     const versions =
-      loadCarePlanVersions(clientId, ownerId) || [];
+      loadCarePlanVersions(
+        clientId,
+        ownerId
+      ) || [];
 
-    return versions[0]?.plan || null;
+    return (
+      versions[0]?.plan ||
+      null
+    );
   } catch (error) {
-    console.warn("Unable to load medication care-plan context:", error);
+    console.warn(
+      "Unable to load medication care-plan context:",
+      error
+    );
+
     return null;
   }
 }
+
 
 function getStatusLevel(status) {
   switch (status) {
@@ -170,6 +274,7 @@ function getStatusLevel(status) {
   }
 }
 
+
 function MedicationMetric({
   icon,
   label,
@@ -181,10 +286,17 @@ function MedicationMetric({
     <article
       className={`medication-metric medication-metric-${level}`}
     >
-      <div className="medication-metric-icon">{icon}</div>
+      <div className="medication-metric-icon">
+        {icon}
+      </div>
 
-      <div className="medication-metric-value">{value}</div>
-      <div className="medication-metric-label">{label}</div>
+      <div className="medication-metric-value">
+        {value}
+      </div>
+
+      <div className="medication-metric-label">
+        {label}
+      </div>
 
       {detail ? (
         <div className="medication-metric-detail">
@@ -194,6 +306,7 @@ function MedicationMetric({
     </article>
   );
 }
+
 
 function MedicationCard({
   title,
@@ -208,7 +321,9 @@ function MedicationCard({
     >
       <div className="medication-card-header">
         <div>
-          <div className="card-title">{title}</div>
+          <div className="card-title">
+            {title}
+          </div>
 
           {subtitle ? (
             <div className="card-subtitle">
@@ -217,7 +332,9 @@ function MedicationCard({
           ) : null}
         </div>
 
-        {right ? <div>{right}</div> : null}
+        {right ? (
+          <div>{right}</div>
+        ) : null}
       </div>
 
       <div className="medication-card-body">
@@ -227,7 +344,11 @@ function MedicationCard({
   );
 }
 
-function StatusBadge({ level = "neutral", children }) {
+
+function StatusBadge({
+  level = "neutral",
+  children,
+}) {
   return (
     <span
       className={`medication-status medication-status-${level}`}
@@ -237,40 +358,104 @@ function StatusBadge({ level = "neutral", children }) {
   );
 }
 
-function EmptyState({ icon = "💊", title, description }) {
+
+function EmptyState({
+  icon = "💊",
+  title,
+  description,
+}) {
   return (
     <div className="medication-empty-state">
       <div className="medication-empty-icon">
         {icon}
       </div>
 
-      <strong>{title}</strong>
-      <span>{description}</span>
+      <strong>
+        {title}
+      </strong>
+
+      <span>
+        {description}
+      </span>
     </div>
   );
 }
 
-export default function MedicationZone() {
-  const { user } = useAuth();
-  const { activeClientId } = useActiveClient();
 
-  const clients = useMemo(
-    () => loadClients(user?.id),
-    [user?.id]
+export default function MedicationZone() {
+  const {
+    user,
+  } = useAuth();
+
+  const {
+    organisationId,
+    organisationName,
+    role,
+    roleLabel,
+  } = useWorkspace();
+
+  const {
+    clients,
+    activeClientId,
+    setActiveClientId,
+    clientsReady,
+  } = useActiveClient();
+
+  const fallbackId =
+    clients[0]?.id || "";
+
+
+  const [
+    selectedClientId,
+    setSelectedClientId,
+  ] = useState(
+    activeClientId ||
+      fallbackId
   );
 
-  const fallbackId = clients[0]?.id || "";
 
-  const [selectedClientId, setSelectedClientId] =
-    useState(activeClientId || fallbackId);
+  const [
+    allSessions,
+    setAllSessions,
+  ] = useState({});
 
-  const [allSessions, setAllSessions] = useState({});
 
-  const [medications, setMedications] = useState(
+  const [
+    sessionsLoading,
+    setSessionsLoading,
+  ] = useState(false);
+
+
+  const [
+    sessionError,
+    setSessionError,
+  ] = useState("");
+
+
+  const [
+    saving,
+    setSaving,
+  ] = useState(false);
+
+
+  const [
+    deletingSessionId,
+    setDeletingSessionId,
+  ] = useState("");
+
+
+  const [
+    medications,
+    setMedications,
+  ] = useState(
     INITIAL_MEDICATIONS
   );
 
-  const [newMedication, setNewMedication] = useState({
+
+  const [
+    newMedication,
+    setNewMedication,
+  ] = useState({
     name: "",
     dose: "",
     route: "Oral",
@@ -278,109 +463,320 @@ export default function MedicationZone() {
     type: "Regular",
   });
 
-  const [allergies, setAllergies] = useState("");
-  const [sideEffects, setSideEffects] = useState([]);
-  const [prnReason, setPrnReason] = useState("");
-  const [prnOutcome, setPrnOutcome] = useState("");
-  const [followUpRequired, setFollowUpRequired] =
-    useState(false);
-  const [followUpReason, setFollowUpReason] =
-    useState("");
-  const [prescriberContacted, setPrescriberContacted] =
-    useState(false);
-  const [pharmacyContacted, setPharmacyContacted] =
-    useState(false);
-  const [notes, setNotes] = useState("");
 
+  const [
+    allergies,
+    setAllergies,
+  ] = useState("");
+
+
+  const [
+    sideEffects,
+    setSideEffects,
+  ] = useState([]);
+
+
+  const [
+    prnReason,
+    setPrnReason,
+  ] = useState("");
+
+
+  const [
+    prnOutcome,
+    setPrnOutcome,
+  ] = useState("");
+
+
+  const [
+    followUpRequired,
+    setFollowUpRequired,
+  ] = useState(false);
+
+
+  const [
+    followUpReason,
+    setFollowUpReason,
+  ] = useState("");
+
+
+  const [
+    prescriberContacted,
+    setPrescriberContacted,
+  ] = useState(false);
+
+
+  const [
+    pharmacyContacted,
+    setPharmacyContacted,
+  ] = useState(false);
+
+
+  const [
+    notes,
+    setNotes,
+  ] = useState("");
+
+
+  const canManageAllSessions =
+    [
+      "provider_admin",
+      "manager",
+    ].includes(role);
+
+
+  /*
+   * Sync with the globally selected participant.
+   */
   useEffect(() => {
-    if (activeClientId) {
-      setSelectedClientId(activeClientId);
+    if (
+      activeClientId &&
+      activeClientId !==
+        selectedClientId
+    ) {
+      setSelectedClientId(
+        activeClientId
+      );
     }
-  }, [activeClientId]);
+  }, [
+    activeClientId,
+    selectedClientId,
+  ]);
 
+
+  /*
+   * Select the first authorised participant
+   * if no participant is currently active.
+   */
   useEffect(() => {
-    if (!selectedClientId && fallbackId) {
-      setSelectedClientId(fallbackId);
+    if (
+      !selectedClientId &&
+      fallbackId
+    ) {
+      setSelectedClientId(
+        fallbackId
+      );
     }
-  }, [fallbackId, selectedClientId]);
+  }, [
+    fallbackId,
+    selectedClientId,
+  ]);
 
+
+  /*
+   * Selecting a participant from Medication
+   * updates the global participant context.
+   */
   useEffect(() => {
-    setAllSessions(loadSessions(user?.id));
-  }, [user?.id]);
+    if (
+      selectedClientId &&
+      selectedClientId !==
+        activeClientId
+    ) {
+      setActiveClientId(
+        selectedClientId
+      );
+    }
+  }, [
+    selectedClientId,
+    activeClientId,
+    setActiveClientId,
+  ]);
 
-  const selectedClient = useMemo(
-    () =>
-      clients.find(
-        (client) => client.id === selectedClientId
-      ) || null,
-    [clients, selectedClientId]
-  );
 
-  const carePlan = useMemo(
-    () =>
-      getLatestCarePlan(
+  /*
+   * Load the complete shared participant
+   * history so cross-service signals work.
+   */
+  const refreshSessions =
+    useCallback(
+      async () => {
+        if (
+          !organisationId ||
+          !selectedClientId
+        ) {
+          setAllSessions({});
+          return;
+        }
+
+        setSessionsLoading(
+          true
+        );
+
+        setSessionError("");
+
+        try {
+          const sessions =
+            await loadParticipantSessions(
+              {
+                organisationId,
+
+                participantId:
+                  selectedClientId,
+              }
+            );
+
+          setAllSessions({
+            [selectedClientId]:
+              sessions,
+          });
+        } catch (error) {
+          console.error(
+            "Unable to load shared medication sessions:",
+            error
+          );
+
+          setAllSessions({
+            [selectedClientId]:
+              [],
+          });
+
+          setSessionError(
+            error?.message ||
+              "Unable to load shared participant sessions."
+          );
+        } finally {
+          setSessionsLoading(
+            false
+          );
+        }
+      },
+      [
+        organisationId,
         selectedClientId,
-        user?.id
-      ),
-    [selectedClientId, user?.id]
-  );
+      ]
+    );
 
-  const medicationSessions = useMemo(
-    () =>
-      getMedicationSessions(
-        allSessions,
-        selectedClientId
-      ),
-    [allSessions, selectedClientId]
-  );
 
-  const crossZoneSessions = useMemo(
-    () =>
-      getCrossZoneSessions(
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+
+
+  const selectedClient =
+    useMemo(
+      () =>
+        clients.find(
+          (client) =>
+            client.id ===
+            selectedClientId
+        ) || null,
+      [
+        clients,
+        selectedClientId,
+      ]
+    );
+
+
+  const carePlan =
+    useMemo(
+      () =>
+        getLatestCarePlan(
+          selectedClientId,
+          user?.id
+        ),
+      [
+        selectedClientId,
+        user?.id,
+      ]
+    );
+
+
+  const medicationSessions =
+    useMemo(
+      () =>
+        getMedicationSessions(
+          allSessions,
+          selectedClientId
+        ),
+      [
         allSessions,
-        selectedClientId
-      ),
-    [allSessions, selectedClientId]
-  );
+        selectedClientId,
+      ]
+    );
+
+
+  const crossZoneSessions =
+    useMemo(
+      () =>
+        getCrossZoneSessions(
+          allSessions,
+          selectedClientId
+        ),
+      [
+        allSessions,
+        selectedClientId,
+      ]
+    );
+
 
   const recentMedicationSessions =
-    medicationSessions.slice(0, 8);
+    medicationSessions.slice(
+      0,
+      8
+    );
+
 
   const latestMedicationSession =
-    medicationSessions[0] || null;
+    medicationSessions[0] ||
+    null;
 
-  const latestSessionDays = daysAgo(
-    latestMedicationSession?.timestamp ||
-      latestMedicationSession?.createdAt
-  );
 
-  const planSections = carePlan?.sections || {};
+  const latestSessionDays =
+    daysAgo(
+      latestMedicationSession
+        ?.timestamp ||
+        latestMedicationSession
+          ?.createdAt
+    );
 
-  const healthContext = safe(
-    planSections.healthClinical
-  ).trim();
 
-  const medicationRiskContext = safe(
-    planSections.risks || carePlan?.risks
-  ).trim();
+  const planSections =
+    carePlan?.sections || {};
 
-  const safeguardsContext = safe(
-    planSections.safeguardsConsent
-  ).trim();
 
-  const currentTakenCount = medications.filter(
-    (medication) =>
-      medication.status === "Taken" ||
-      medication.status === "Self-administered" ||
-      medication.status === "Prompted"
-  ).length;
+  const healthContext =
+    safe(
+      planSections.healthClinical
+    ).trim();
 
-  const currentIssueCount = medications.filter(
-    (medication) =>
-      medication.status === "Refused" ||
-      medication.status === "Missed" ||
-      medication.status === "Withheld"
-  ).length;
+
+  const medicationRiskContext =
+    safe(
+      planSections.risks ||
+        carePlan?.risks
+    ).trim();
+
+
+  const safeguardsContext =
+    safe(
+      planSections.safeguardsConsent
+    ).trim();
+
+
+  const currentTakenCount =
+    medications.filter(
+      (medication) =>
+        medication.status ===
+          "Taken" ||
+        medication.status ===
+          "Self-administered" ||
+        medication.status ===
+          "Prompted"
+    ).length;
+
+
+  const currentIssueCount =
+    medications.filter(
+      (medication) =>
+        medication.status ===
+          "Refused" ||
+        medication.status ===
+          "Missed" ||
+        medication.status ===
+          "Withheld"
+    ).length;
+
 
   const historicalFollowUps =
     medicationSessions.filter(
@@ -389,48 +785,83 @@ export default function MedicationZone() {
         session.followUp
     ).length;
 
-  function updateMedication(id, key, value) {
-    setMedications((previous) =>
-      previous.map((medication) =>
-        medication.id === id
-          ? {
-              ...medication,
-              [key]: value,
-            }
-          : medication
-      )
+
+  function updateMedication(
+    id,
+    key,
+    value
+  ) {
+    setMedications(
+      (previous) =>
+        previous.map(
+          (medication) =>
+            medication.id ===
+            id
+              ? {
+                  ...medication,
+                  [key]:
+                    value,
+                }
+              : medication
+        )
     );
   }
 
-  function removeMedication(id) {
-    setMedications((previous) =>
-      previous.filter(
-        (medication) => medication.id !== id
-      )
+
+  function removeMedication(
+    id
+  ) {
+    setMedications(
+      (previous) =>
+        previous.filter(
+          (medication) =>
+            medication.id !==
+            id
+        )
     );
   }
+
 
   function addMedication() {
-    if (!newMedication.name.trim()) {
-      alert("Enter the medication name.");
+    if (
+      !newMedication.name.trim()
+    ) {
+      alert(
+        "Enter the medication name."
+      );
+
       return;
     }
 
-    setMedications((previous) => [
-      ...previous,
-      {
-        id: uid("med"),
-        name: newMedication.name.trim(),
-        dose: newMedication.dose.trim(),
-        route: newMedication.route,
-        frequency: newMedication.frequency.trim(),
-        type: newMedication.type,
-        status:
-          newMedication.type === "PRN"
-            ? "Not required"
-            : "Not recorded",
-      },
-    ]);
+    setMedications(
+      (previous) => [
+        ...previous,
+        {
+          id: uid("med"),
+
+          name:
+            newMedication.name.trim(),
+
+          dose:
+            newMedication.dose.trim(),
+
+          route:
+            newMedication.route,
+
+          frequency:
+            newMedication.frequency.trim(),
+
+          type:
+            newMedication.type,
+
+          status:
+            newMedication.type ===
+            "PRN"
+              ? "Not required"
+              : "Not recorded",
+        },
+      ]
+    );
 
     setNewMedication({
       name: "",
@@ -441,47 +872,107 @@ export default function MedicationZone() {
     });
   }
 
-  function toggleSideEffect(sideEffect) {
-    setSideEffects((previous) =>
-      previous.includes(sideEffect)
-        ? previous.filter(
-            (item) => item !== sideEffect
-          )
-        : [...previous, sideEffect]
+
+  function toggleSideEffect(
+    sideEffect
+  ) {
+    setSideEffects(
+      (previous) =>
+        previous.includes(
+          sideEffect
+        )
+          ? previous.filter(
+              (item) =>
+                item !==
+                sideEffect
+            )
+          : [
+              ...previous,
+              sideEffect,
+            ]
     );
   }
 
+
   function resetMedicationCheck() {
-    setMedications((previous) =>
-      previous.map((medication) => ({
-        ...medication,
-        status:
-          medication.type === "PRN"
-            ? "Not required"
-            : "Not recorded",
-      }))
+    setMedications(
+      (previous) =>
+        previous.map(
+          (medication) => ({
+            ...medication,
+
+            status:
+              medication.type ===
+              "PRN"
+                ? "Not required"
+                : "Not recorded",
+          })
+        )
     );
 
     setSideEffects([]);
+
     setPrnReason("");
+
     setPrnOutcome("");
-    setFollowUpRequired(false);
+
+    setFollowUpRequired(
+      false
+    );
+
     setFollowUpReason("");
-    setPrescriberContacted(false);
-    setPharmacyContacted(false);
+
+    setPrescriberContacted(
+      false
+    );
+
+    setPharmacyContacted(
+      false
+    );
+
     setNotes("");
   }
 
-  function handleSaveMedicationSession() {
-    if (!selectedClientId) {
-      alert("Select a participant first.");
+
+  async function handleSaveMedicationSession() {
+    if (
+      !selectedClientId
+    ) {
+      alert(
+        "Select a participant first."
+      );
+
       return;
     }
 
-    const hasRecordedStatus = medications.some(
-      (medication) =>
-        medication.status !== "Not recorded"
-    );
+
+    if (
+      !organisationId
+    ) {
+      alert(
+        "No provider workspace is active."
+      );
+
+      return;
+    }
+
+
+    if (!user?.id) {
+      alert(
+        "You must be signed in to save a medication check."
+      );
+
+      return;
+    }
+
+
+    const hasRecordedStatus =
+      medications.some(
+        (medication) =>
+          medication.status !==
+          "Not recorded"
+      );
+
 
     if (
       !hasRecordedStatus &&
@@ -491,53 +982,149 @@ export default function MedicationZone() {
       alert(
         "Record at least one medication status, note or follow-up concern."
       );
+
       return;
     }
 
-    const timestamp = new Date().toISOString();
+
+    if (
+      followUpRequired &&
+      !followUpReason.trim()
+    ) {
+      alert(
+        "Please record the reason for the medication follow-up."
+      );
+
+      return;
+    }
+
+
+    const timestamp =
+      new Date().toISOString();
+
 
     const payload = {
-      id: uid("medication-session"),
       timestamp,
-      createdAt: timestamp,
-      clientId: selectedClientId,
+
       zone: "meds",
 
-      medications: medications.map(
-        (medication) => ({ ...medication })
-      ),
+      medications:
+        medications.map(
+          (medication) => ({
+            ...medication,
+          })
+        ),
 
-      allergies: allergies.trim(),
-      sideEffects,
-      prnReason: prnReason.trim(),
-      prnOutcome: prnOutcome.trim(),
+      allergies:
+        allergies.trim(),
 
-      followUp: followUpRequired,
+      sideEffects: [
+        ...sideEffects,
+      ],
+
+      prnReason:
+        prnReason.trim(),
+
+      prnOutcome:
+        prnOutcome.trim(),
+
+      followUp:
+        followUpRequired,
+
       followUpRequired,
-      followUpReason: followUpReason.trim(),
+
+      followUpReason:
+        followUpReason.trim(),
 
       prescriberContacted,
+
       pharmacyContacted,
-      notes: notes.trim(),
+
+      notes:
+        notes.trim(),
     };
 
-    const updated = {
-      ...allSessions,
-      [selectedClientId]: [
-        payload,
-        ...(allSessions[selectedClientId] || []),
-      ],
-    };
 
-    setAllSessions(updated);
-    saveSessions(updated, user?.id);
+    setSaving(true);
 
-    resetMedicationCheck();
+    setSessionError("");
 
-    alert("Medication check saved.");
+
+    try {
+      await createParticipantSession(
+        {
+          organisationId,
+
+          participantId:
+            selectedClientId,
+
+          userId:
+            user.id,
+
+          zone:
+            "meds",
+
+          sessionData:
+            payload,
+        }
+      );
+
+
+      await refreshSessions();
+
+
+      resetMedicationCheck();
+
+
+      alert(
+        "Medication check saved to the shared participant record."
+      );
+    } catch (error) {
+      console.error(
+        "Unable to save shared medication check:",
+        error
+      );
+
+
+      setSessionError(
+        error?.message ||
+          "Unable to save medication check."
+      );
+
+
+      alert(
+        error?.message ||
+          "Unable to save medication check."
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDeleteSession(sessionId) {
+
+  async function handleDeleteSession(
+    session
+  ) {
+    if (!session?.id) {
+      return;
+    }
+
+
+    const canDelete =
+      canManageAllSessions ||
+      session.createdBy ===
+        user?.id;
+
+
+    if (!canDelete) {
+      alert(
+        "You cannot delete a medication check created by another team member."
+      );
+
+      return;
+    }
+
+
     if (
       !window.confirm(
         "Delete this medication check?"
@@ -546,21 +1133,63 @@ export default function MedicationZone() {
       return;
     }
 
-    const updatedClientSessions = asArray(
-      allSessions[selectedClientId]
-    ).filter(
-      (session) => session.id !== sessionId
+
+    setDeletingSessionId(
+      session.id
     );
 
-    const updated = {
-      ...allSessions,
-      [selectedClientId]:
-        updatedClientSessions,
-    };
+    setSessionError("");
 
-    setAllSessions(updated);
-    saveSessions(updated, user?.id);
+
+    try {
+      await deleteParticipantSession(
+        {
+          sessionId:
+            session.id,
+
+          organisationId,
+        }
+      );
+
+
+      await refreshSessions();
+    } catch (error) {
+      console.error(
+        "Unable to delete shared medication check:",
+        error
+      );
+
+
+      setSessionError(
+        error?.message ||
+          "Unable to delete medication check."
+      );
+
+
+      alert(
+        error?.message ||
+          "Unable to delete medication check."
+      );
+    } finally {
+      setDeletingSessionId(
+        ""
+      );
+    }
   }
+
+
+  if (!clientsReady) {
+    return (
+      <div className="zone-page">
+        <EmptyState
+          icon="⏳"
+          title="Loading participants"
+          description="Checking your authorised participant access."
+        />
+      </div>
+    );
+  }
+
 
   if (!clients.length) {
     return (
@@ -568,63 +1197,95 @@ export default function MedicationZone() {
         <EmptyState
           icon="👥"
           title="No participant available"
-          description="Add a participant before recording medication support."
+          description="Ask your coordinator or manager to assign participant access."
         />
       </div>
     );
   }
 
+
   return (
     <div className="zone-page medication-v2-page">
+
       <header className="medication-v2-hero">
+
         <div>
+
           <div className="eyebrow">
             Medication & Safety
           </div>
 
-          <h1>Medication Support Workspace</h1>
+
+          <h1>
+            Medication Support Workspace
+          </h1>
+
 
           <p>
-            Record medication prompting, adherence,
-            refusals, PRN outcomes, possible side effects
-            and follow-up actions while remaining within
-            worker scope and the participant’s authorised
-            medication plan.
+            Record medication prompting,
+            adherence, refusals, PRN outcomes,
+            possible side effects and follow-up
+            actions while remaining within the
+            worker or professional’s authorised
+            scope and the participant’s medication
+            plan.
           </p>
 
+
           <div className="medication-hero-client">
+
             <div className="medication-client-avatar">
-              {safe(selectedClient?.name)
+              {safe(
+                selectedClient
+                  ?.name
+              )
                 .charAt(0)
-                .toUpperCase() || "P"}
+                .toUpperCase() ||
+                "P"}
             </div>
 
+
             <div>
+
               <strong>
-                {selectedClient?.name}
+                {selectedClient
+                  ?.name}
               </strong>
 
+
               <span>
-                {selectedClient?.age
+                {selectedClient
+                  ?.age
                   ? `Age ${selectedClient.age}`
                   : "Age not recorded"}
               </span>
 
+
               <small>
                 NDIS:{" "}
-                {selectedClient?.ndisNumber ||
+                {selectedClient
+                  ?.ndisNumber ||
                   "Not recorded"}
               </small>
+
             </div>
+
           </div>
+
         </div>
 
+
         <div className="medication-safety-card">
+
           <div className="medication-safety-icon">
             🛡️
           </div>
 
-          <strong>Scope-safe medication support</strong>
+
+          <strong>
+            Scope-safe medication support
+          </strong>
+
 
           <p>
             Theraa Nurse records observations and
@@ -632,252 +1293,433 @@ export default function MedicationZone() {
             alter doses or replace an authorised
             medication chart.
           </p>
+
+
+          <small
+            style={{
+              display: "block",
+              marginTop: 10,
+            }}
+          >
+            {roleLabel} ·{" "}
+            {organisationName}
+          </small>
+
         </div>
+
       </header>
 
-      {/* <ClientSelectorBar
-        right={
-          <div className="medication-selector-hint">
-            Active participant changes across all tabs.
-          </div>
-        }
-      /> */}
+
+      {sessionError ? (
+        <div
+          className="auth-error"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {sessionError}
+        </div>
+      ) : null}
+
 
       <section className="medication-metric-grid">
+
         <MedicationMetric
           icon="💊"
           label="Current Medications"
-          value={medications.length}
+          value={
+            medications.length
+          }
           detail={`${
             medications.filter(
               (medication) =>
-                medication.type === "PRN"
+                medication.type ===
+                "PRN"
             ).length
           } PRN medication(s)`}
           level="neutral"
         />
 
+
         <MedicationMetric
           icon="✅"
           label="Recorded as Taken"
-          value={currentTakenCount}
+          value={
+            currentTakenCount
+          }
           detail="Taken, prompted or self-administered"
           level={
-            currentTakenCount > 0
+            currentTakenCount >
+            0
               ? "good"
               : "neutral"
           }
         />
 
+
         <MedicationMetric
           icon="⚠️"
           label="Current Issues"
-          value={currentIssueCount}
+          value={
+            currentIssueCount
+          }
           detail="Refused, missed or withheld"
           level={
-            currentIssueCount > 0
+            currentIssueCount >
+            0
               ? "danger"
               : "good"
           }
         />
 
+
         <MedicationMetric
           icon="📋"
           label="Medication Checks"
-          value={medicationSessions.length}
+          value={
+            medicationSessions.length
+          }
           detail={
-            latestSessionDays == null
+            sessionsLoading
+              ? "Refreshing shared history…"
+              : latestSessionDays ==
+                null
               ? "No checks recorded"
-              : latestSessionDays === 0
+              : latestSessionDays ===
+                0
               ? "Latest check today"
               : `Latest check ${latestSessionDays}d ago`
           }
           level={
-            medicationSessions.length > 0
+            medicationSessions.length >
+            0
               ? "good"
               : "neutral"
           }
         />
 
+
         <MedicationMetric
           icon="🔔"
           label="Follow-Up History"
-          value={historicalFollowUps}
-          detail="Previous checks requiring review"
+          value={
+            historicalFollowUps
+          }
+          detail="Previous shared checks requiring review"
           level={
-            historicalFollowUps > 0
+            historicalFollowUps >
+            0
               ? "warning"
               : "good"
           }
         />
+
       </section>
 
+
       <div className="medication-v2-main-grid">
+
         <div className="medication-v2-primary">
+
+
           <MedicationCard
             title="Medication Check"
             subtitle="Record the support provided and the observed outcome for each listed medication."
             right={
               <StatusBadge level="neutral">
-                Draft check
+                Shared check
               </StatusBadge>
             }
           >
+
             <label className="medication-participant-field">
-              <span>Participant</span>
+
+              <span>
+                Participant
+              </span>
+
 
               <select
                 className="input"
-                value={selectedClientId}
-                onChange={(event) =>
+                value={
+                  selectedClientId
+                }
+                onChange={(
+                  event
+                ) =>
                   setSelectedClientId(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               >
-                {clients.map((client) => (
-                  <option
-                    key={client.id}
-                    value={client.id}
-                  >
-                    {client.name}
-                    {client.age
-                      ? ` (${client.age})`
-                      : ""}
-                  </option>
-                ))}
+
+                {clients.map(
+                  (client) => (
+                    <option
+                      key={
+                        client.id
+                      }
+                      value={
+                        client.id
+                      }
+                    >
+                      {
+                        client.name
+                      }
+
+                      {client.age
+                        ? ` (${client.age})`
+                        : ""}
+                    </option>
+                  )
+                )}
+
               </select>
+
             </label>
 
+
             <div className="medication-table-wrapper">
+
               <table className="medication-table">
+
                 <thead>
+
                   <tr>
-                    <th>Medication</th>
-                    <th>Dose</th>
-                    <th>Route</th>
-                    <th>Frequency</th>
-                    <th>Type</th>
-                    <th>Status</th>
+                    <th>
+                      Medication
+                    </th>
+
+                    <th>
+                      Dose
+                    </th>
+
+                    <th>
+                      Route
+                    </th>
+
+                    <th>
+                      Frequency
+                    </th>
+
+                    <th>
+                      Type
+                    </th>
+
+                    <th>
+                      Status
+                    </th>
+
                     <th />
                   </tr>
+
                 </thead>
 
+
                 <tbody>
+
                   {medications.map(
-                    (medication) => (
-                      <tr key={medication.id}>
+                    (
+                      medication
+                    ) => (
+
+                      <tr
+                        key={
+                          medication.id
+                        }
+                      >
+
                         <td>
+
                           <input
                             className="medication-table-input"
-                            value={medication.name}
-                            onChange={(event) =>
+                            value={
+                              medication.name
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "name",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           />
+
                         </td>
 
+
                         <td>
+
                           <input
                             className="medication-table-input"
-                            value={medication.dose}
-                            onChange={(event) =>
+                            value={
+                              medication.dose
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "dose",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           />
+
                         </td>
 
+
                         <td>
+
                           <select
                             className="medication-table-input"
-                            value={medication.route}
-                            onChange={(event) =>
+                            value={
+                              medication.route
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "route",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           >
-                            {ROUTES.map((route) => (
-                              <option key={route}>
-                                {route}
-                              </option>
-                            ))}
+
+                            {ROUTES.map(
+                              (
+                                route
+                              ) => (
+                                <option
+                                  key={
+                                    route
+                                  }
+                                >
+                                  {
+                                    route
+                                  }
+                                </option>
+                              )
+                            )}
+
                           </select>
+
                         </td>
 
+
                         <td>
+
                           <input
                             className="medication-table-input"
                             value={
                               medication.frequency
                             }
-                            onChange={(event) =>
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "frequency",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           />
+
                         </td>
 
+
                         <td>
+
                           <select
                             className="medication-table-input"
-                            value={medication.type}
-                            onChange={(event) =>
+                            value={
+                              medication.type
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "type",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           >
+
                             {MEDICATION_TYPES.map(
-                              (type) => (
-                                <option key={type}>
-                                  {type}
+                              (
+                                type
+                              ) => (
+                                <option
+                                  key={
+                                    type
+                                  }
+                                >
+                                  {
+                                    type
+                                  }
                                 </option>
                               )
                             )}
+
                           </select>
+
                         </td>
 
+
                         <td>
+
                           <select
                             className={`medication-status-select medication-status-select-${getStatusLevel(
                               medication.status
                             )}`}
-                            value={medication.status}
-                            onChange={(event) =>
+                            value={
+                              medication.status
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateMedication(
                                 medication.id,
                                 "status",
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                           >
+
                             {MEDICATION_STATUSES.map(
-                              (status) => (
-                                <option key={status}>
-                                  {status}
+                              (
+                                status
+                              ) => (
+                                <option
+                                  key={
+                                    status
+                                  }
+                                >
+                                  {
+                                    status
+                                  }
                                 </option>
                               )
                             )}
+
                           </select>
+
                         </td>
 
+
                         <td>
+
                           <button
                             type="button"
                             className="medication-remove-button"
@@ -890,139 +1732,250 @@ export default function MedicationZone() {
                           >
                             ×
                           </button>
+
                         </td>
+
                       </tr>
+
                     )
                   )}
+
                 </tbody>
+
               </table>
+
             </div>
 
+
             <div className="medication-add-panel">
+
               <div className="medication-add-heading">
                 Add medication to this check
               </div>
 
+
               <div className="medication-add-grid">
+
                 <input
                   className="input"
-                  value={newMedication.name}
-                  onChange={(event) =>
+                  value={
+                    newMedication.name
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setNewMedication(
-                      (previous) => ({
+                      (
+                        previous
+                      ) => ({
                         ...previous,
-                        name: event.target.value,
+
+                        name:
+                          event.target
+                            .value,
                       })
                     )
                   }
                   placeholder="Medication name"
                 />
 
+
                 <input
                   className="input"
-                  value={newMedication.dose}
-                  onChange={(event) =>
+                  value={
+                    newMedication.dose
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setNewMedication(
-                      (previous) => ({
+                      (
+                        previous
+                      ) => ({
                         ...previous,
-                        dose: event.target.value,
+
+                        dose:
+                          event.target
+                            .value,
                       })
                     )
                   }
                   placeholder="Dose"
                 />
 
+
                 <select
                   className="input"
-                  value={newMedication.route}
-                  onChange={(event) =>
+                  value={
+                    newMedication.route
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setNewMedication(
-                      (previous) => ({
+                      (
+                        previous
+                      ) => ({
                         ...previous,
-                        route: event.target.value,
+
+                        route:
+                          event.target
+                            .value,
                       })
                     )
                   }
                 >
-                  {ROUTES.map((route) => (
-                    <option key={route}>{route}</option>
-                  ))}
+
+                  {ROUTES.map(
+                    (
+                      route
+                    ) => (
+                      <option
+                        key={
+                          route
+                        }
+                      >
+                        {route}
+                      </option>
+                    )
+                  )}
+
                 </select>
+
 
                 <input
                   className="input"
                   value={
                     newMedication.frequency
                   }
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     setNewMedication(
-                      (previous) => ({
+                      (
+                        previous
+                      ) => ({
                         ...previous,
+
                         frequency:
-                          event.target.value,
+                          event.target
+                            .value,
                       })
                     )
                   }
                   placeholder="Frequency"
                 />
 
+
                 <select
                   className="input"
-                  value={newMedication.type}
-                  onChange={(event) =>
+                  value={
+                    newMedication.type
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setNewMedication(
-                      (previous) => ({
+                      (
+                        previous
+                      ) => ({
                         ...previous,
-                        type: event.target.value,
+
+                        type:
+                          event.target
+                            .value,
                       })
                     )
                   }
                 >
-                  {MEDICATION_TYPES.map((type) => (
-                    <option key={type}>{type}</option>
-                  ))}
+
+                  {MEDICATION_TYPES.map(
+                    (
+                      type
+                    ) => (
+                      <option
+                        key={
+                          type
+                        }
+                      >
+                        {type}
+                      </option>
+                    )
+                  )}
+
                 </select>
+
 
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={addMedication}
+                  onClick={
+                    addMedication
+                  }
                 >
                   Add Medication
                 </button>
+
               </div>
+
             </div>
+
           </MedicationCard>
+
 
           <MedicationCard
             title="Observation & Follow-Up"
             subtitle="Record possible side effects, refusals, PRN outcomes and escalation actions."
           >
+
             <div className="medication-form-grid">
+
               <label className="medication-form-wide">
-                <span>Known allergies or sensitivities</span>
+
+                <span>
+                  Known allergies or sensitivities
+                </span>
+
 
                 <input
                   className="input"
-                  value={allergies}
-                  onChange={(event) =>
-                    setAllergies(event.target.value)
+                  value={
+                    allergies
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setAllergies(
+                      event.target
+                        .value
+                    )
                   }
                   placeholder="Record only confirmed information from authorised records"
                 />
+
               </label>
+
             </div>
 
+
             <div className="medication-form-section">
+
               <div className="medication-form-section-title">
                 Possible side effects or changes observed
               </div>
 
+
               <div className="medication-check-grid">
+
                 {SIDE_EFFECT_OPTIONS.map(
-                  (sideEffect) => (
+                  (
+                    sideEffect
+                  ) => (
+
                     <label
-                      key={sideEffect}
+                      key={
+                        sideEffect
+                      }
                       className={
                         sideEffects.includes(
                           sideEffect
@@ -1031,11 +1984,14 @@ export default function MedicationZone() {
                           : "medication-check-option"
                       }
                     >
+
                       <input
                         type="checkbox"
-                        checked={sideEffects.includes(
-                          sideEffect
-                        )}
+                        checked={
+                          sideEffects.includes(
+                            sideEffect
+                          )
+                        }
                         onChange={() =>
                           toggleSideEffect(
                             sideEffect
@@ -1043,178 +1999,305 @@ export default function MedicationZone() {
                         }
                       />
 
-                      <span>{sideEffect}</span>
+
+                      <span>
+                        {sideEffect}
+                      </span>
+
                     </label>
+
                   )
                 )}
+
               </div>
+
             </div>
 
+
             <div className="medication-form-grid">
+
               <label>
-                <span>PRN reason</span>
+
+                <span>
+                  PRN reason
+                </span>
+
 
                 <textarea
                   className="textarea"
                   rows={3}
-                  value={prnReason}
-                  onChange={(event) =>
-                    setPrnReason(event.target.value)
+                  value={
+                    prnReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setPrnReason(
+                      event.target
+                        .value
+                    )
                   }
                   placeholder="Why was PRN support considered or provided?"
                 />
+
               </label>
 
+
               <label>
-                <span>PRN outcome</span>
+
+                <span>
+                  PRN outcome
+                </span>
+
 
                 <textarea
                   className="textarea"
                   rows={3}
-                  value={prnOutcome}
-                  onChange={(event) =>
-                    setPrnOutcome(event.target.value)
+                  value={
+                    prnOutcome
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setPrnOutcome(
+                      event.target
+                        .value
+                    )
                   }
                   placeholder="What outcome was observed and recorded?"
                 />
+
               </label>
 
+
               <label className="medication-form-wide">
-                <span>Medication notes</span>
+
+                <span>
+                  Medication notes
+                </span>
+
 
                 <textarea
                   className="textarea"
                   rows={5}
-                  value={notes}
-                  onChange={(event) =>
-                    setNotes(event.target.value)
+                  value={
+                    notes
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setNotes(
+                      event.target
+                        .value
+                    )
                   }
                   placeholder="Record objective observations, refusals, missed doses, behaviour changes and actions taken..."
                 />
+
               </label>
+
             </div>
 
+
             <div className="medication-followup-panel">
+
               <label className="medication-followup-toggle">
+
                 <input
                   type="checkbox"
-                  checked={followUpRequired}
-                  onChange={(event) =>
+                  checked={
+                    followUpRequired
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setFollowUpRequired(
-                      event.target.checked
+                      event.target
+                        .checked
                     )
                   }
                 />
 
+
                 <span>
                   Flag this medication check for
-                  coordinator or authorised professional
-                  review
+                  coordinator or authorised
+                  professional review
                 </span>
+
               </label>
 
+
               {followUpRequired ? (
+
                 <>
+
                   <textarea
                     className="textarea"
                     rows={3}
-                    value={followUpReason}
-                    onChange={(event) =>
+                    value={
+                      followUpReason
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setFollowUpReason(
-                        event.target.value
+                        event.target
+                          .value
                       )
                     }
                     placeholder="Explain the concern and the follow-up required..."
                   />
 
+
                   <div className="medication-contact-options">
+
                     <label>
+
                       <input
                         type="checkbox"
                         checked={
                           prescriberContacted
                         }
-                        onChange={(event) =>
+                        onChange={(
+                          event
+                        ) =>
                           setPrescriberContacted(
-                            event.target.checked
+                            event.target
+                              .checked
                           )
                         }
                       />
-                      Prescriber or authorised clinician
-                      contacted
+
+                      Prescriber or authorised clinician contacted
+
                     </label>
+
 
                     <label>
+
                       <input
                         type="checkbox"
-                        checked={pharmacyContacted}
-                        onChange={(event) =>
+                        checked={
+                          pharmacyContacted
+                        }
+                        onChange={(
+                          event
+                        ) =>
                           setPharmacyContacted(
-                            event.target.checked
+                            event.target
+                              .checked
                           )
                         }
                       />
+
                       Pharmacy contacted
+
                     </label>
+
                   </div>
+
                 </>
+
               ) : null}
+
             </div>
 
+
             <div className="medication-form-actions">
+
               <button
                 type="button"
                 className="btn-primary"
-                onClick={
-                  handleSaveMedicationSession
+                onClick={() =>
+                  void handleSaveMedicationSession()
+                }
+                disabled={
+                  saving
                 }
               >
-                💾 Save Medication Check
+                {saving
+                  ? "Saving Shared Check…"
+                  : "💾 Save Shared Medication Check"}
               </button>
+
 
               <button
                 type="button"
                 className="medication-secondary-button"
-                onClick={resetMedicationCheck}
+                onClick={
+                  resetMedicationCheck
+                }
+                disabled={
+                  saving
+                }
               >
                 Clear Check
               </button>
+
             </div>
+
           </MedicationCard>
+
 
           <MedicationCard
             title="Recent Medication Timeline"
-            subtitle="Review adherence, concerns and follow-up history."
+            subtitle="Review shared adherence, concerns and follow-up history."
             right={
               <StatusBadge
                 level={
-                  medicationSessions.length > 0
+                  medicationSessions.length >
+                  0
                     ? "good"
                     : "neutral"
                 }
               >
-                {medicationSessions.length} total
+                {
+                  medicationSessions.length
+                }{" "}
+                total
               </StatusBadge>
             }
           >
-            {recentMedicationSessions.length ===
-            0 ? (
+
+            {sessionsLoading ? (
+
+              <EmptyState
+                icon="⏳"
+                title="Loading medication history"
+                description="Retrieving authorised shared participant medication records."
+              />
+
+            ) : recentMedicationSessions.length ===
+              0 ? (
+
               <EmptyState
                 icon="💊"
                 title="No medication checks recorded"
-                description="Save the first medication-support check using the form above."
+                description="Save the first shared medication-support check using the form above."
               />
+
             ) : (
+
               <div className="medication-session-list">
+
                 {recentMedicationSessions.map(
-                  (session, index) => {
-                    const recordedMeds = asArray(
-                      session.medications
-                    );
+                  (
+                    session,
+                    index
+                  ) => {
+
+                    const recordedMeds =
+                      asArray(
+                        session.medications
+                      );
+
 
                     const issueMeds =
                       recordedMeds.filter(
-                        (medication) =>
+                        (
+                          medication
+                        ) =>
                           [
                             "Refused",
                             "Missed",
@@ -1224,7 +2307,15 @@ export default function MedicationZone() {
                           )
                       );
 
+
+                    const canDeleteSession =
+                      canManageAllSessions ||
+                      session.createdBy ===
+                        user?.id;
+
+
                     return (
+
                       <article
                         className="medication-session-card"
                         key={
@@ -1232,11 +2323,15 @@ export default function MedicationZone() {
                           `${session.timestamp}-${index}`
                         }
                       >
+
                         <div className="medication-session-heading">
+
                           <div>
+
                             <strong>
                               Medication Check
                             </strong>
+
 
                             <span>
                               {formatDateTime(
@@ -1244,11 +2339,25 @@ export default function MedicationZone() {
                                   session.createdAt
                               )}
                             </span>
+
+
+                            {session.createdBy ? (
+                              <small>
+                                Recorded by:{" "}
+                                {session.createdBy ===
+                                user?.id
+                                  ? "You"
+                                  : "Authorised team member"}
+                              </small>
+                            ) : null}
+
                           </div>
+
 
                           <StatusBadge
                             level={
-                              issueMeds.length > 0
+                              issueMeds.length >
+                              0
                                 ? "danger"
                                 : session.followUpRequired ||
                                   session.followUp
@@ -1256,9 +2365,11 @@ export default function MedicationZone() {
                                 : "good"
                             }
                           >
-                            {issueMeds.length > 0
+                            {issueMeds.length >
+                            0
                               ? `${issueMeds.length} issue${
-                                  issueMeds.length === 1
+                                  issueMeds.length ===
+                                  1
                                     ? ""
                                     : "s"
                                 }`
@@ -1267,23 +2378,34 @@ export default function MedicationZone() {
                               ? "Follow-up"
                               : "Recorded"}
                           </StatusBadge>
+
                         </div>
 
+
                         <div className="medication-session-med-list">
+
                           {recordedMeds.map(
-                            (medication) => (
+                            (
+                              medication
+                            ) => (
+
                               <div
                                 key={
                                   medication.id ||
                                   `${medication.name}-${medication.dose}`
                                 }
                               >
+
                                 <span>
-                                  {medication.name}
+                                  {
+                                    medication.name
+                                  }
+
                                   {medication.dose
                                     ? ` ${medication.dose}`
                                     : ""}
                                 </span>
+
 
                                 <StatusBadge
                                   level={getStatusLevel(
@@ -1293,49 +2415,133 @@ export default function MedicationZone() {
                                   {medication.status ||
                                     "Not recorded"}
                                 </StatusBadge>
+
                               </div>
+
                             )
                           )}
+
                         </div>
+
+
+                        {session.allergies ? (
+                          <div className="medication-session-block">
+
+                            <b>
+                              Allergies / sensitivities
+                            </b>
+
+                            <p>
+                              {
+                                session.allergies
+                              }
+                            </p>
+
+                          </div>
+                        ) : null}
+
 
                         {asArray(
                           session.sideEffects
                         ).length ? (
+
                           <div className="medication-session-block">
+
                             <b>
                               Observations
                             </b>
+
 
                             <p>
                               {session.sideEffects.join(
                                 ", "
                               )}
                             </p>
+
                           </div>
+
                         ) : null}
 
-                        {session.followUpReason ? (
+
+                        {session.prnReason ? (
+
                           <div className="medication-session-block">
+
+                            <b>
+                              PRN reason
+                            </b>
+
+                            <p>
+                              {
+                                session.prnReason
+                              }
+                            </p>
+
+                          </div>
+
+                        ) : null}
+
+
+                        {session.prnOutcome ? (
+
+                          <div className="medication-session-block">
+
+                            <b>
+                              PRN outcome
+                            </b>
+
+                            <p>
+                              {
+                                session.prnOutcome
+                              }
+                            </p>
+
+                          </div>
+
+                        ) : null}
+
+
+                        {session.followUpReason ? (
+
+                          <div className="medication-session-block">
+
                             <b>
                               Follow-up reason
                             </b>
+
 
                             <p>
                               {
                                 session.followUpReason
                               }
                             </p>
+
                           </div>
+
                         ) : null}
+
 
                         {session.notes ? (
+
                           <div className="medication-session-block">
-                            <b>Notes</b>
-                            <p>{session.notes}</p>
+
+                            <b>
+                              Notes
+                            </b>
+
+                            <p>
+                              {
+                                session.notes
+                              }
+                            </p>
+
                           </div>
+
                         ) : null}
 
+
                         <div className="medication-session-footer">
+
                           <span>
                             {session.prescriberContacted
                               ? "Clinician contacted"
@@ -1344,161 +2550,289 @@ export default function MedicationZone() {
                               : "No contact recorded"}
                           </span>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDeleteSession(
+
+                          {canDeleteSession ? (
+
+                            <button
+                              type="button"
+                              disabled={
+                                deletingSessionId ===
                                 session.id
-                              )
-                            }
-                          >
-                            Delete
-                          </button>
+                              }
+                              onClick={() =>
+                                void handleDeleteSession(
+                                  session
+                                )
+                              }
+                            >
+                              {deletingSessionId ===
+                              session.id
+                                ? "Deleting…"
+                                : "Delete"}
+                            </button>
+
+                          ) : (
+
+                            <small>
+                              Shared record
+                            </small>
+
+                          )}
+
                         </div>
+
                       </article>
+
                     );
                   }
                 )}
+
               </div>
+
             )}
+
           </MedicationCard>
+
         </div>
 
+
         <aside className="medication-v2-secondary">
+
+
           <MedicationCard
             title="Purpose Plan Medication Context"
             subtitle="Relevant information from the latest participant plan."
           >
+
             <div className="medication-plan-block">
+
               <span>
                 Health and clinical considerations
               </span>
 
+
               <p>
                 {healthContext ||
-                  "No health or clinical medication context is recorded."}
+                  "No shared health or clinical medication context has been migrated yet."}
               </p>
+
             </div>
 
+
             <div className="medication-plan-block">
+
               <span>
                 Risks and warning signs
               </span>
+
 
               <p>
                 {medicationRiskContext ||
                   "No medication-related risk information is recorded."}
               </p>
+
             </div>
 
+
             <div className="medication-plan-block">
+
               <span>
                 Consent and safeguards
               </span>
+
 
               <p>
                 {safeguardsContext ||
                   "No consent or safeguard information is recorded."}
               </p>
+
             </div>
+
           </MedicationCard>
+
 
           <MedicationCard
             title="Medication Safety Checks"
             subtitle="Prompts for safe support and documentation."
           >
+
             <div className="medication-guidance-list">
+
               <div>
-                <span>1</span>
+
+                <span>
+                  1
+                </span>
+
                 <p>
                   Confirm the medication against the
                   authorised chart or provider record.
                 </p>
+
               </div>
 
+
               <div>
-                <span>2</span>
+
+                <span>
+                  2
+                </span>
+
                 <p>
                   Never alter a dose, time, route or
                   medication instruction without proper
                   authority.
                 </p>
+
               </div>
 
+
               <div>
-                <span>3</span>
+
+                <span>
+                  3
+                </span>
+
                 <p>
                   Record refusals, missed medication,
                   possible side effects and actions taken.
                 </p>
+
               </div>
 
+
               <div>
-                <span>4</span>
+
+                <span>
+                  4
+                </span>
+
                 <p>
                   Escalate urgent reactions, unexpected
                   deterioration or medication errors
                   according to workplace procedures.
                 </p>
+
               </div>
+
             </div>
+
           </MedicationCard>
+
 
           <MedicationCard
             title="Cross-Service Signals"
-            subtitle="Related participant activity across Theraa Nurse."
+            subtitle="Related shared participant activity across Theraa Nurse."
           >
+
             <div className="medication-signal-list">
+
               {[
                 {
-                  zone: "therapy",
-                  label: "Therapy",
-                  icon: "🧠",
+                  zone:
+                    "therapy",
+
+                  label:
+                    "Therapy",
+
+                  icon:
+                    "🧠",
                 },
                 {
-                  zone: "paramedic",
-                  label: "Paramedic",
-                  icon: "🚑",
+                  zone:
+                    "paramedic",
+
+                  label:
+                    "Paramedic",
+
+                  icon:
+                    "🚑",
                 },
                 {
-                  zone: "staff",
-                  label: "Staff Notes",
-                  icon: "📝",
+                  zone:
+                    "staff",
+
+                  label:
+                    "Staff Notes",
+
+                  icon:
+                    "📝",
                 },
                 {
-                  zone: "vpn",
-                  label: "Remote Support",
-                  icon: "🔐",
+                  zone:
+                    "vpn",
+
+                  label:
+                    "Remote Support",
+
+                  icon:
+                    "🔐",
                 },
-              ].map((item) => {
-                const count =
-                  crossZoneSessions.filter(
-                    (session) =>
-                      session.zone === item.zone
-                  ).length;
+              ].map(
+                (item) => {
 
-                return (
-                  <div key={item.zone}>
-                    <span>{item.icon}</span>
+                  const count =
+                    crossZoneSessions.filter(
+                      (
+                        session
+                      ) =>
+                        session.zone ===
+                        item.zone
+                    ).length;
 
-                    <div>
-                      <strong>{item.label}</strong>
 
-                      <small>
-                        {count} entr
-                        {count === 1 ? "y" : "ies"}{" "}
-                        recorded
-                      </small>
+                  return (
+
+                    <div
+                      key={
+                        item.zone
+                      }
+                    >
+
+                      <span>
+                        {item.icon}
+                      </span>
+
+
+                      <div>
+
+                        <strong>
+                          {
+                            item.label
+                          }
+                        </strong>
+
+
+                        <small>
+                          {count} entr
+                          {count ===
+                          1
+                            ? "y"
+                            : "ies"}{" "}
+                          recorded
+                        </small>
+
+                      </div>
+
+
+                      <b>
+                        {count}
+                      </b>
+
                     </div>
 
-                    <b>{count}</b>
-                  </div>
-                );
-              })}
+                  );
+                }
+              )}
+
             </div>
+
           </MedicationCard>
+
         </aside>
+
       </div>
+
     </div>
   );
 }
