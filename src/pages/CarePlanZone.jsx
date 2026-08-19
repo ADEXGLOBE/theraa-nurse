@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { loadClients } from "../data/clientsStore";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActiveClient } from "../context/ActiveClientContext";
+import { useWorkspace } from "../context/WorkspaceContext";
 import {
-  loadCarePlanVersions,
-  saveCarePlanVersion,
-} from "../data/carePlanStore";
+  createSharedCarePlanVersion,
+  loadSharedCarePlanVersions,
+} from "../services/carePlanService";
 import { generateCarePlanPdf } from "../features/careplans/carePlanPdf";
 
 import {
@@ -14,7 +15,7 @@ import {
   buildFindingsFromDocs,
   generateCarePlanDraft,
 } from "../features/careplans/carePlanGenerator";
-import { loadSessions } from "../data/sessionStore";
+import { loadParticipantSessions } from "../services/sessionService";
 import { useAuth } from "../context/AuthContext";
 import { buildDraftFromEvidence } from "../engines/careEngine";
 import { getKnowledgeContext } from "../data/knowledgeBaseStore";
@@ -301,7 +302,14 @@ function Card({ title, subtitle, children, right }) {
   );
 }
 
-function SectionTextarea({ label, value, onChange, rows = 4, placeholder }) {
+function SectionTextarea({
+  label,
+  value,
+  onChange,
+  rows = 4,
+  placeholder,
+  disabled = false,
+}) {
   return (
     <label className="section-title-sm" style={{ display: "block" }}>
       {label}
@@ -311,6 +319,7 @@ function SectionTextarea({ label, value, onChange, rows = 4, placeholder }) {
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder || ""}
+        disabled={disabled}
       />
     </label>
   );
@@ -318,63 +327,275 @@ function SectionTextarea({ label, value, onChange, rows = 4, placeholder }) {
 
 export default function CarePlanZone() {
   const { user } = useAuth();
-  const clients = useMemo(() => loadClients(user?.id), [user?.id]);
 
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const {
+    organisationId,
+    organisationName,
+    role,
+    roleLabel,
+  } = useWorkspace();
+
+  const {
+    clients,
+    clientsReady,
+    activeClientId,
+    setActiveClientId,
+  } = useActiveClient();
+
+  const fallbackId = clients[0]?.id || "";
+
+  /*
+   * V3 participant-selection rule:
+   * ActiveClientContext is the single source of truth.
+   */
+  const selectedClientId =
+    activeClientId || fallbackId;
+
+  const carePlanRequestRef = useRef(0);
+
   const [versions, setVersions] = useState([]);
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [activePlan, setActivePlan] = useState(normalizePlan(EMPTY_PLAN()));
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionError, setVersionError] = useState("");
+  const [isSavingVersion, setIsSavingVersion] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [lastBuildInfo, setLastBuildInfo] = useState("");
   const [knowledgeOutput, setKnowledgeOutput] = useState("");
 
+  const canCreatePlan = [
+    "provider_admin",
+    "manager",
+    "support_coordinator",
+    "nurse",
+    "allied_health",
+  ].includes(role);
+
+  const canReviewPlan = [
+    "provider_admin",
+    "manager",
+    "support_coordinator",
+  ].includes(role);
+
   useEffect(() => {
-    if (!selectedClientId && clients.length > 0) {
-      setSelectedClientId(clients[0].id);
+    if (!activeClientId && fallbackId) {
+      setActiveClientId(fallbackId);
     }
-    if (clients.length === 0) {
-      setSelectedClientId("");
-      setVersions([]);
-      setSelectedVersionId("");
-      setActivePlan(normalizePlan(EMPTY_PLAN()));
-    }
-  }, [clients, selectedClientId]);
+  }, [
+    activeClientId,
+    fallbackId,
+    setActiveClientId,
+  ]);
+
+  /*
+   * Clear participant-specific state immediately when the
+   * active participant changes and invalidate older requests.
+   */
+  useEffect(() => {
+    carePlanRequestRef.current += 1;
+    setVersions([]);
+    setSelectedVersionId("");
+    setActivePlan(normalizePlan({
+      ...EMPTY_PLAN(),
+      clientId: selectedClientId,
+    }));
+    setVersionError("");
+    setLastBuildInfo("");
+    setKnowledgeOutput("");
+  }, [selectedClientId]);
 
   const client = useMemo(
-    () => clients.find((c) => c.id === selectedClientId) || null,
-    [clients, selectedClientId]
+    () =>
+      clients.find(
+        (candidate) =>
+          candidate.id === selectedClientId
+      ) || null,
+    [
+      clients,
+      selectedClientId,
+    ]
   );
 
   const selectedVersion = useMemo(() => {
-    if (!selectedVersionId) return versions?.[0] || null;
-    return versions.find((v) => v.id === selectedVersionId) || versions?.[0] || null;
-  }, [versions, selectedVersionId]);
+    if (!selectedVersionId) {
+      return versions?.[0] || null;
+    }
+
+    return (
+      versions.find(
+        (version) =>
+          version.id === selectedVersionId
+      ) ||
+      versions?.[0] ||
+      null
+    );
+  }, [
+    versions,
+    selectedVersionId,
+  ]);
+
+  const refreshCarePlanVersions = useCallback(
+    async ({
+      preferVersionId = "",
+    } = {}) => {
+      const participantId =
+        selectedClientId;
+
+      if (
+        !organisationId ||
+        !participantId
+      ) {
+        setVersions([]);
+        setSelectedVersionId("");
+        setVersionsLoading(false);
+        return [];
+      }
+
+      const requestId =
+        ++carePlanRequestRef.current;
+
+      setVersionsLoading(true);
+      setVersionError("");
+
+      try {
+        const loaded =
+          await loadSharedCarePlanVersions({
+            organisationId,
+            participantId,
+          });
+
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return [];
+        }
+
+        const safeVersions =
+          Array.isArray(loaded)
+            ? loaded
+            : [];
+
+        setVersions(safeVersions);
+
+        const preferred =
+          preferVersionId &&
+          safeVersions.some(
+            (version) =>
+              version.id === preferVersionId
+          )
+            ? preferVersionId
+            : safeVersions[0]?.id || "";
+
+        setSelectedVersionId(preferred);
+
+        const selected =
+          safeVersions.find(
+            (version) =>
+              version.id === preferred
+          ) ||
+          safeVersions[0] ||
+          null;
+
+        const nextPlan =
+          normalizePlan(
+            selected?.plan ||
+              EMPTY_PLAN()
+          );
+
+        nextPlan.clientId =
+          participantId;
+
+        setActivePlan(nextPlan);
+
+        return safeVersions;
+      } catch (error) {
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return [];
+        }
+
+        console.error(
+          "Unable to load shared care plans:",
+          error
+        );
+
+        setVersions([]);
+        setSelectedVersionId("");
+        setVersionError(
+          error?.message ||
+            "Unable to load the shared care plan."
+        );
+
+        const empty =
+          normalizePlan(
+            EMPTY_PLAN()
+          );
+
+        empty.clientId =
+          participantId;
+
+        setActivePlan(empty);
+
+        return [];
+      } finally {
+        if (
+          requestId ===
+          carePlanRequestRef.current
+        ) {
+          setVersionsLoading(false);
+        }
+      }
+    },
+    [
+      organisationId,
+      selectedClientId,
+    ]
+  );
 
   useEffect(() => {
-    if (!selectedClientId) return;
-    const v = loadCarePlanVersions(selectedClientId, user?.id) || [];
-    setVersions(v);
-
-    const initial = normalizePlan(v[0]?.plan || EMPTY_PLAN());
-    initial.clientId = selectedClientId;
-    setActivePlan(initial);
-
-    setSelectedVersionId(v[0]?.id || "");
-  }, [selectedClientId, user?.id]);
+    void refreshCarePlanVersions();
+  }, [refreshCarePlanVersions]);
 
   useEffect(() => {
-    if (!selectedVersion) return;
-    const p = normalizePlan(selectedVersion.plan || EMPTY_PLAN());
-    p.clientId = selectedClientId;
-    setActivePlan(p);
-  }, [selectedVersion, selectedClientId]);
+    if (!selectedVersion) {
+      return;
+    }
+
+    const plan =
+      normalizePlan(
+        selectedVersion.plan ||
+          EMPTY_PLAN()
+      );
+
+    plan.clientId =
+      selectedClientId;
+
+    setActivePlan(plan);
+  }, [
+    selectedVersion,
+    selectedClientId,
+  ]);
+
+  if (!clientsReady) {
+    return (
+      <div className="card">
+        <div className="card-title">Care Plan</div>
+        <div className="card-subtitle">
+          Loading authorised participants...
+        </div>
+      </div>
+    );
+  }
 
   if (!client) {
     return (
       <div className="card">
         <div className="card-title">Care Plan</div>
-        <div className="card-subtitle">No client available. Add a client first.</div>
+        <div className="card-subtitle">No authorised participant is available.</div>
       </div>
     );
   }
@@ -415,8 +636,16 @@ export default function CarePlanZone() {
     try {
       const docs = await listDocumentsForClient(client.id);
       const documentIntelligence = await buildClientDocumentIntelligence(client.id);
-      const sessionsMap = loadSessions(user?.id);
-      const recentSessions = (sessionsMap?.[client.id] || []).slice(0, 20);
+
+      const sharedSessions =
+        await loadParticipantSessions({
+          organisationId,
+          participantId: client.id,
+        });
+
+      const recentSessions =
+        (sharedSessions || []).slice(0, 20);
+
       const findings = buildFindingsFromDocs(docs || []);
 
       const baseDraft = generateCarePlanDraft({
@@ -611,11 +840,23 @@ async function enhanceWithKnowledgeEngine() {
       user?.id
     );
 
+    const sharedSessions =
+      await loadParticipantSessions({
+        organisationId,
+        participantId: client.id,
+      });
+
+    const recentSessions =
+      (sharedSessions || []).slice(0, 30);
+
     const evidence = [
       `Participant: ${client.name || "Unknown"} (${client.age || "age unknown"})`,
       "",
-      "Current Draft Care Plan:",
+      "Current Shared Draft Care Plan:",
       JSON.stringify(activePlan, null, 2),
+      "",
+      "Recent Shared Multidisciplinary Sessions:",
+      JSON.stringify(recentSessions, null, 2),
       "",
       "Participant Document Evidence:",
       documentIntelligence?.combinedText ||
@@ -760,7 +1001,7 @@ async function enhanceWithKnowledgeEngine() {
               structured.missingEvidence
             )}`
           : "",
-        `Evidence reviewed: ${docs.length} participant document(s).`,
+        `Evidence reviewed: ${docs.length} participant document(s) and ${recentSessions.length} shared session record(s).`,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -877,22 +1118,96 @@ Check the Vercel deployment, API credit, document size and browser console for d
   }
 }
 
-  function saveVersion(status) {
-    const plan = normalizePlan(activePlan);
+  async function saveVersion(status) {
+    if (!organisationId) {
+      alert("No provider workspace is active.");
+      return;
+    }
 
-    saveCarePlanVersion({
-      clientId: client.id,
-      status,
-      plan,
-      evidenceCount: latestVersion?.evidenceCount || 0,
-      ownerId: user?.id,
-    });
+    if (!client?.id) {
+      alert("Select a participant first.");
+      return;
+    }
 
-    const v = loadCarePlanVersions(client.id, user?.id) || [];
-    setVersions(v);
-    setSelectedVersionId(v[0]?.id || "");
-    alert(status === "reviewed" ? "Saved as Reviewed." : "Saved as Draft.");
+    if (!user?.id) {
+      alert("You must be signed in to save a care plan.");
+      return;
+    }
+
+    if (!canCreatePlan) {
+      alert(
+        "Your current workspace role is read-only for care-plan creation."
+      );
+      return;
+    }
+
+    if (
+      ["reviewed", "approved"].includes(status) &&
+      !canReviewPlan
+    ) {
+      alert(
+        "Only a Provider Admin, Manager or Support Coordinator can formally review or approve a care plan."
+      );
+      return;
+    }
+
+    setIsSavingVersion(true);
+    setVersionError("");
+
+    try {
+      const plan =
+        normalizePlan(activePlan);
+
+      plan.clientId =
+        client.id;
+
+      const created =
+        await createSharedCarePlanVersion({
+          organisationId,
+          participantId:
+            client.id,
+          userId:
+            user.id,
+          status,
+          plan,
+          evidenceCount:
+            latestVersion?.evidenceCount ||
+            0,
+        });
+
+      await refreshCarePlanVersions({
+        preferVersionId:
+          created?.id || "",
+      });
+
+      const message =
+        status === "approved"
+          ? "Shared care plan saved as Approved."
+          : status === "reviewed"
+          ? "Shared care plan saved as Reviewed."
+          : "Shared care plan saved as Draft.";
+
+      alert(message);
+    } catch (error) {
+      console.error(
+        "Unable to save shared care-plan version:",
+        error
+      );
+
+      setVersionError(
+        error?.message ||
+          "Unable to save the shared care plan."
+      );
+
+      alert(
+        error?.message ||
+          "Unable to save the shared care plan."
+      );
+    } finally {
+      setIsSavingVersion(false);
+    }
   }
+
 
   function downloadPdf() {
     const v = selectedVersion || latestVersion;
@@ -981,8 +1296,13 @@ Check the Vercel deployment, API credit, document size and browser console for d
         <h1>Care Plan Builder</h1>
         <p>
           Generate, review and optimise purpose-centred care plans from participant
-          evidence, session notes, documents and Theraa Nurse intelligence.
+          evidence, shared session notes, documents and Theraa Nurse intelligence.
         </p>
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
+          Workspace: <strong>{organisationName || "Provider workspace"}</strong>
+          {" · "}
+          Role: <strong>{roleLabel || "Workspace member"}</strong>
+        </div>
       </div>
 
       <div className="careplan-hero-card">
@@ -998,9 +1318,15 @@ Check the Vercel deployment, API credit, document size and browser console for d
       </div>
     </div>
 
+      {versionError ? (
+        <div className="auth-error" style={{ marginBottom: 12 }}>
+          {versionError}
+        </div>
+      ) : null}
+
       <Card
-        title="Client & Versions"
-        subtitle="Pick a client, then view/edit the latest care plan version — or open older versions."
+        title="Participant & Shared Versions"
+        subtitle="Select an authorised participant, then review shared organisation care-plan versions."
         right={
           <div
             style={{
@@ -1010,15 +1336,28 @@ Check the Vercel deployment, API credit, document size and browser console for d
               justifyContent: "flex-end",
             }}
           >
-            <button className="btn-primary" onClick={() => saveVersion("draft")}>
-              💾 Save Draft
+            <button
+              className="btn-primary"
+              onClick={() => void saveVersion("draft")}
+              disabled={isSavingVersion || !canCreatePlan}
+            >
+              {isSavingVersion ? "Saving…" : "💾 Save Draft"}
             </button>
             <button
               className="btn-primary"
               style={{ background: "#0f766e" }}
-              onClick={() => saveVersion("reviewed")}
+              onClick={() => void saveVersion("reviewed")}
+              disabled={isSavingVersion || !canReviewPlan}
             >
               ✅ Save Reviewed
+            </button>
+            <button
+              className="btn-primary"
+              style={{ background: "#166534" }}
+              onClick={() => void saveVersion("approved")}
+              disabled={isSavingVersion || !canReviewPlan}
+            >
+              🛡️ Save Approved
             </button>
             <button
               className="btn-primary"
@@ -1033,11 +1372,13 @@ Check the Vercel deployment, API credit, document size and browser console for d
         <div className="two-column">
           <div className="stack">
             <label className="section-title-sm">
-              Client
+              Participant
               <select
                 className="input"
                 value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
+                onChange={(e) =>
+                  setActiveClientId(e.target.value)
+                }
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -1056,7 +1397,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                 value={selectedVersionId || ""}
                 onChange={(e) => setSelectedVersionId(e.target.value)}
               >
-                {versions.length === 0 ? <option value="">No versions yet</option> : null}
+                {versionsLoading ? <option value="">Loading shared versions…</option> : versions.length === 0 ? <option value="">No shared versions yet</option> : null}
                 {versions.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.status} · {new Date(v.createdAt).toLocaleString()}
@@ -1069,7 +1410,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               <button
                 className="btn-primary"
                 onClick={buildFromAllEvidence}
-                disabled={isBuilding}
+                disabled={isBuilding || versionsLoading || !canCreatePlan}
               >
                 {isBuilding ? "⏳ Building…" : "🧠 Refresh Draft from Docs + Notes"}
               </button>
@@ -1078,7 +1419,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                 className="btn-primary"
                 style={{ background: "#6d28d9" }}
                 onClick={enhanceWithKnowledgeEngine}
-                disabled={isEnhancing}
+                disabled={isEnhancing || versionsLoading || !canCreatePlan}
               >
                 {isEnhancing ? "⏳ Enhancing…" : "🤖 Enhance with Knowledge Engine"}
               </button>
@@ -1213,6 +1554,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.participantDetails}
               onChange={(v) => updateSection("participantDetails", v)}
               rows={5}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1222,12 +1564,14 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.goalsShort}
               onChange={(v) => updateSection("goalsShort", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
             <SectionTextarea
               label="Long-term goals"
               value={sections.goalsLong}
               onChange={(v) => updateSection("goalsLong", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1237,12 +1581,14 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.strengths}
               onChange={(v) => updateSection("strengths", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
             <SectionTextarea
               label="Daily routines & preferences"
               value={sections.routinesAndPreferences}
               onChange={(v) => updateSection("routinesAndPreferences", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1252,6 +1598,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.functionalNeeds}
               onChange={(v) => updateSection("functionalNeeds", v)}
               rows={7}
+              disabled={!canCreatePlan}
             />
           </Card>
         </div>
@@ -1263,6 +1610,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.healthClinical}
               onChange={(v) => updateSection("healthClinical", v)}
               rows={5}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1272,6 +1620,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.risks}
               onChange={(v) => updateSection("risks", v)}
               rows={5}
+              disabled={!canCreatePlan}
             />
 
             <label className="section-title-sm" style={{ display: "block", marginTop: 8 }}>
@@ -1280,6 +1629,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                 className="textarea"
                 rows={4}
                 value={asArray(sections.riskControls).join("\n")}
+                disabled={!canCreatePlan}
                 onChange={(e) =>
                   updateListSection(
                     "riskControls",
@@ -1299,6 +1649,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.behaviourSupport}
               onChange={(v) => updateSection("behaviourSupport", v)}
               rows={5}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1308,6 +1659,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.communication}
               onChange={(v) => updateSection("communication", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
 
             <SectionTextarea
@@ -1315,6 +1667,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.safeguardsConsent}
               onChange={(v) => updateSection("safeguardsConsent", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1324,6 +1677,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.monitoringReview}
               onChange={(v) => updateSection("monitoringReview", v)}
               rows={5}
+              disabled={!canCreatePlan}
             />
           </Card>
 
@@ -1333,6 +1687,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
               value={sections.legalEthical}
               onChange={(v) => updateSection("legalEthical", v)}
               rows={4}
+              disabled={!canCreatePlan}
             />
           </Card>
         </div>
@@ -1364,7 +1719,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                     }}
                   >
                     <div style={{ fontSize: 13, color: "#111827" }}>{t}</div>
-                    <button className="btn-primary" onClick={() => approveTodo("worker", t)}>
+                    <button className="btn-primary" disabled={!canReviewPlan} onClick={() => approveTodo("worker", t)}>
                       ✅ Approve
                     </button>
                   </div>
@@ -1401,6 +1756,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                     <button
                       className="btn-primary"
                       style={{ background: "#b91c1c" }}
+                      disabled={!canReviewPlan}
                       onClick={() => unapproveTodo("worker", t)}
                     >
                       ↩ Remove
@@ -1437,7 +1793,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                     }}
                   >
                     <div style={{ fontSize: 13, color: "#111827" }}>{t}</div>
-                    <button className="btn-primary" onClick={() => approveTodo("client", t)}>
+                    <button className="btn-primary" disabled={!canReviewPlan} onClick={() => approveTodo("client", t)}>
                       ✅ Approve
                     </button>
                   </div>
@@ -1474,6 +1830,7 @@ Check the Vercel deployment, API credit, document size and browser console for d
                     <button
                       className="btn-primary"
                       style={{ background: "#b91c1c" }}
+                      disabled={!canReviewPlan}
                       onClick={() => unapproveTodo("client", t)}
                     >
                       ↩ Remove
