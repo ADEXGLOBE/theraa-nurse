@@ -13,7 +13,7 @@ import { useActiveClient } from "../context/ActiveClientContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 
 import { listDocumentsForClient } from "../features/documents/documentService";
-import { loadCarePlanVersions } from "../data/carePlanStore";
+import { loadSharedCarePlanVersions } from "../services/carePlanService";
 
 import {
   loadParticipantSessions,
@@ -455,6 +455,7 @@ export default function ParticipantTimeline() {
   // Prevent stale async responses from a previous participant.
   const sessionRequestRef = useRef(0);
   const documentRequestRef = useRef(0);
+  const carePlanRequestRef = useRef(0);
 
   const [
     documents,
@@ -467,6 +468,11 @@ export default function ParticipantTimeline() {
   ] = useState([]);
 
   const [
+    carePlans,
+    setCarePlans,
+  ] = useState([]);
+
+  const [
     loadingSessions,
     setLoadingSessions,
   ] = useState(false);
@@ -474,6 +480,11 @@ export default function ParticipantTimeline() {
   const [
     loadingDocuments,
     setLoadingDocuments,
+  ] = useState(false);
+
+  const [
+    loadingCarePlans,
+    setLoadingCarePlans,
   ] = useState(false);
 
   const [
@@ -501,8 +512,10 @@ export default function ParticipantTimeline() {
     // Invalidate old participant requests and clear stale UI.
     sessionRequestRef.current += 1;
     documentRequestRef.current += 1;
+    carePlanRequestRef.current += 1;
     setSharedSessions([]);
     setDocuments([]);
+    setCarePlans([]);
     setErrorMessage("");
     setFilter("all");
   }, [selectedClientId]);
@@ -629,39 +642,81 @@ export default function ParticipantTimeline() {
 
 
   /* =========================================================
-     CARE PLAN
-
-     Care plans remain on the current carePlanStore until
-     the shared Care Plan V3 migration.
+     SHARED PURPOSE / CARE PLANS
   ========================================================= */
 
-  const carePlans = useMemo(() => {
-    if (
-      !selectedClientId ||
-      !user?.id
-    ) {
-      return [];
-    }
+  const refreshCarePlans = useCallback(
+    async () => {
+      const participantId = selectedClientId;
 
-    try {
-      return (
-        loadCarePlanVersions(
-          selectedClientId,
-          user.id
-        ) || []
-      );
-    } catch (error) {
-      console.warn(
-        "Unable to load care plans for timeline:",
-        error
-      );
+      if (!organisationId || !participantId) {
+        setCarePlans([]);
+        setLoadingCarePlans(false);
+        return;
+      }
 
-      return [];
-    }
-  }, [
-    selectedClientId,
-    user?.id,
-  ]);
+      const requestId =
+        ++carePlanRequestRef.current;
+
+      setLoadingCarePlans(true);
+
+      try {
+        const versions =
+          await loadSharedCarePlanVersions({
+            organisationId,
+            participantId,
+          });
+
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return;
+        }
+
+        setCarePlans(
+          Array.isArray(versions)
+            ? versions
+            : []
+        );
+      } catch (error) {
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return;
+        }
+
+        console.error(
+          "Unable to load shared care plans for timeline:",
+          error
+        );
+
+        setCarePlans([]);
+
+        setErrorMessage(
+          error?.message ||
+            "Unable to load shared Purpose Plans."
+        );
+      } finally {
+        if (
+          requestId ===
+          carePlanRequestRef.current
+        ) {
+          setLoadingCarePlans(false);
+        }
+      }
+    },
+    [
+      organisationId,
+      selectedClientId,
+    ]
+  );
+
+  useEffect(() => {
+    void refreshCarePlans();
+  }, [refreshCarePlans]);
+
 
 
   /* =========================================================
@@ -761,53 +816,83 @@ export default function ParticipantTimeline() {
 
     const planEvents =
       carePlans.map(
-        (version, index) => ({
-          id:
-            version.id ||
-            `careplan-${index}`,
+        (version, index) => {
+          let icon = "🎯";
+          let title =
+            "Purpose Plan version saved";
 
-          type: "careplan",
+          if (version.status === "reviewed") {
+            icon = "✅";
+            title =
+              "Purpose Plan reviewed";
+          }
 
-          category: "Care Plan",
+          if (version.status === "approved") {
+            icon = "🛡️";
+            title =
+              "Purpose Plan approved";
+          }
 
-          className: "careplan",
+          if (version.status === "archived") {
+            icon = "📦";
+            title =
+              "Purpose Plan archived";
+          }
 
-          icon:
-            version.status ===
-            "reviewed"
-              ? "✅"
-              : "🎯",
+          return {
+            id:
+              version.id ||
+              `careplan-${index}`,
 
-          title:
-            version.status ===
-            "reviewed"
-              ? "Care plan reviewed"
-              : "Care plan version saved",
+            type: "careplan",
 
-          description:
-            version.status ===
-            "reviewed"
-              ? "A purpose-centred care plan review was recorded."
-              : "A purpose-centred care plan version was saved.",
+            category: "Purpose Plan",
 
-          date:
-            version.createdAt,
+            className: "careplan",
 
-          flags:
-            version.status
-              ? [
-                  {
-                    label:
-                      version.status,
-                    level:
-                      version.status ===
-                      "reviewed"
-                        ? "good"
-                        : "neutral",
-                  },
-                ]
-              : [],
-        })
+            icon,
+
+            title,
+
+            description:
+              version.status === "approved"
+                ? "An approved purpose-centred support plan was recorded for this participant."
+                : version.status === "reviewed"
+                ? "A purpose-centred support plan completed professional review."
+                : version.status === "archived"
+                ? "A previous purpose-centred support plan version was archived."
+                : "A new purpose-centred support plan version was saved.",
+
+            date:
+              version.approvedAt ||
+              version.reviewedAt ||
+              version.createdAt,
+
+            createdBy:
+              version.approvedBy ||
+              version.reviewedBy ||
+              version.createdBy ||
+              null,
+
+            flags:
+              version.status
+                ? [
+                    {
+                      label:
+                        version.status
+                          .charAt(0)
+                          .toUpperCase() +
+                        version.status.slice(1),
+                      level:
+                        version.status === "approved" ||
+                        version.status === "reviewed"
+                          ? "good"
+                          : "neutral",
+                    },
+                  ]
+                : [],
+          };
+        }
       );
 
 
@@ -1225,14 +1310,17 @@ export default function ParticipantTimeline() {
           <button
             type="button"
             className="btn-primary"
-            onClick={() =>
-              void refreshSessions()
-            }
+            onClick={() => {
+              void refreshSessions();
+              void refreshCarePlans();
+            }}
             disabled={
-              loadingSessions
+              loadingSessions ||
+              loadingCarePlans
             }
           >
-            {loadingSessions
+            {loadingSessions ||
+            loadingCarePlans
               ? "Refreshing…"
               : "↻ Refresh Timeline"}
           </button>
@@ -1311,7 +1399,8 @@ export default function ParticipantTimeline() {
 
 
         {loadingSessions ||
-        loadingDocuments ? (
+        loadingDocuments ||
+        loadingCarePlans ? (
 
           <div className="empty-state">
 

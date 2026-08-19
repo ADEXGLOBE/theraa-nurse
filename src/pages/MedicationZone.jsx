@@ -9,8 +9,8 @@ import {
 } from "react";
 
 import {
-  loadCarePlanVersions,
-} from "../data/carePlanStore";
+  loadCurrentSharedCarePlan,
+} from "../services/carePlanService";
 
 import {
   useActiveClient,
@@ -220,42 +220,6 @@ function getCrossZoneSessions(
 }
 
 
-/*
- * Care Plans are still using the
- * legacy local store temporarily.
- *
- * They will be migrated after
- * Medication shared sessions.
- */
-function getLatestCarePlan(
-  clientId,
-  ownerId
-) {
-  if (!clientId) {
-    return null;
-  }
-
-  try {
-    const versions =
-      loadCarePlanVersions(
-        clientId,
-        ownerId
-      ) || [];
-
-    return (
-      versions[0]?.plan ||
-      null
-    );
-  } catch (error) {
-    console.warn(
-      "Unable to load medication care-plan context:",
-      error
-    );
-
-    return null;
-  }
-}
-
 
 function getStatusLevel(status) {
   switch (status) {
@@ -414,6 +378,9 @@ export default function MedicationZone() {
   const sessionRequestRef =
     useRef(0);
 
+  const carePlanRequestRef =
+    useRef(0);
+
 
   const [
     allSessions,
@@ -430,6 +397,24 @@ export default function MedicationZone() {
   const [
     sessionError,
     setSessionError,
+  ] = useState("");
+
+
+  const [
+    carePlan,
+    setCarePlan,
+  ] = useState(null);
+
+
+  const [
+    carePlanLoading,
+    setCarePlanLoading,
+  ] = useState(false);
+
+
+  const [
+    carePlanError,
+    setCarePlanError,
   ] = useState("");
 
 
@@ -553,6 +538,11 @@ export default function MedicationZone() {
    * accidentally saved against another participant.
    */
   useEffect(() => {
+    carePlanRequestRef.current += 1;
+
+    setCarePlan(null);
+    setCarePlanError("");
+
     setAllSessions(
       selectedClientId
         ? {
@@ -697,6 +687,98 @@ export default function MedicationZone() {
   }, [refreshSessions]);
 
 
+  /*
+   * Load the participant's current reviewed or approved
+   * Purpose Plan from the shared Supabase workspace.
+   *
+   * A separate request guard prevents a stale plan response
+   * from appearing after the user switches participants.
+   */
+  const refreshCarePlan =
+    useCallback(
+      async () => {
+        const requestId =
+          ++carePlanRequestRef.current;
+
+        const participantId =
+          selectedClientId;
+
+        if (
+          !organisationId ||
+          !participantId
+        ) {
+          if (
+            requestId ===
+            carePlanRequestRef.current
+          ) {
+            setCarePlan(null);
+            setCarePlanLoading(false);
+            setCarePlanError("");
+          }
+
+          return;
+        }
+
+        setCarePlanLoading(true);
+        setCarePlanError("");
+
+        try {
+          const currentPlan =
+            await loadCurrentSharedCarePlan({
+              organisationId,
+              participantId,
+            });
+
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          setCarePlan(
+            currentPlan?.plan || null
+          );
+        } catch (error) {
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          console.error(
+            "Unable to load shared medication Purpose Plan context:",
+            error
+          );
+
+          setCarePlan(null);
+
+          setCarePlanError(
+            error?.message ||
+              "Unable to load the participant Purpose Plan."
+          );
+        } finally {
+          if (
+            requestId ===
+            carePlanRequestRef.current
+          ) {
+            setCarePlanLoading(false);
+          }
+        }
+      },
+      [
+        organisationId,
+        selectedClientId,
+      ]
+    );
+
+
+  useEffect(() => {
+    void refreshCarePlan();
+  }, [refreshCarePlan]);
+
+
   const selectedClient =
     useMemo(
       () =>
@@ -711,19 +793,6 @@ export default function MedicationZone() {
       ]
     );
 
-
-  const carePlan =
-    useMemo(
-      () =>
-        getLatestCarePlan(
-          selectedClientId,
-          user?.id
-        ),
-      [
-        selectedClientId,
-        user?.id,
-      ]
-    );
 
 
   const medicationSessions =
@@ -1364,6 +1433,18 @@ export default function MedicationZone() {
           }}
         >
           {sessionError}
+        </div>
+      ) : null}
+
+
+      {carePlanError ? (
+        <div
+          className="auth-error"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {carePlanError}
         </div>
       ) : null}
 
@@ -2647,7 +2728,24 @@ export default function MedicationZone() {
 
           <MedicationCard
             title="Purpose Plan Medication Context"
-            subtitle="Relevant information from the latest participant plan."
+            subtitle="Relevant information from the participant's current reviewed or approved shared Purpose Plan."
+            right={
+              <StatusBadge
+                level={
+                  carePlanLoading
+                    ? "neutral"
+                    : carePlan
+                    ? "good"
+                    : "neutral"
+                }
+              >
+                {carePlanLoading
+                  ? "Loading…"
+                  : carePlan
+                  ? "Shared plan"
+                  : "No current plan"}
+              </StatusBadge>
+            }
           >
 
             <div className="medication-plan-block">
@@ -2658,8 +2756,10 @@ export default function MedicationZone() {
 
 
               <p>
-                {healthContext ||
-                  "No shared health or clinical medication context has been migrated yet."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : healthContext ||
+                    "No reviewed or approved health or clinical medication context is recorded."}
               </p>
 
             </div>
@@ -2673,8 +2773,10 @@ export default function MedicationZone() {
 
 
               <p>
-                {medicationRiskContext ||
-                  "No medication-related risk information is recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : medicationRiskContext ||
+                    "No medication-related risk information is recorded in the current shared Purpose Plan."}
               </p>
 
             </div>
@@ -2688,8 +2790,10 @@ export default function MedicationZone() {
 
 
               <p>
-                {safeguardsContext ||
-                  "No consent or safeguard information is recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : safeguardsContext ||
+                    "No consent or safeguard information is recorded in the current shared Purpose Plan."}
               </p>
 
             </div>
