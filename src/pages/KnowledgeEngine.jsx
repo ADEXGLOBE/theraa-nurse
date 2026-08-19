@@ -17,8 +17,8 @@ import {
 } from "../data/knowledgeBaseStore";
 
 import {
-  loadCarePlanVersions,
-} from "../data/carePlanStore";
+  loadSharedCarePlanVersions,
+} from "../services/carePlanService";
 
 import {
   extractTextFromPdf,
@@ -150,40 +150,6 @@ function formatDate(value) {
   }
 
   return date.toLocaleString();
-}
-
-
-/* =========================================================
-   CARE PLAN
-========================================================= */
-
-function getLatestCarePlan(
-  participantId,
-  ownerId
-) {
-  if (!participantId) {
-    return null;
-  }
-
-  try {
-    const versions =
-      loadCarePlanVersions(
-        participantId,
-        ownerId
-      ) || [];
-
-    return (
-      versions[0]?.plan ||
-      null
-    );
-  } catch (error) {
-    console.warn(
-      "Unable to load care plan for Knowledge Engine:",
-      error
-    );
-
-    return null;
-  }
 }
 
 
@@ -572,6 +538,9 @@ export default function KnowledgeEngine() {
   const evidenceRequestRef =
     useRef(0);
 
+  const carePlanRequestRef =
+    useRef(0);
+
   const {
     user,
   } = useAuth();
@@ -651,6 +620,10 @@ export default function KnowledgeEngine() {
     sessionsLoading,
     setSessionsLoading,
   ] = useState(false);
+
+  const [carePlanVersions, setCarePlanVersions] = useState([]);
+  const [carePlanLoading, setCarePlanLoading] = useState(false);
+  const [carePlanError, setCarePlanError] = useState("");
 
   const [
     evidenceError,
@@ -749,6 +722,9 @@ export default function KnowledgeEngine() {
     setEvidenceError("");
     setManualEvidence("");
     setIncludeManualEvidence(false);
+    setCarePlanVersions([]);
+    setCarePlanError("");
+    carePlanRequestRef.current += 1;
   }, [
     selectedParticipantId,
   ]);
@@ -869,21 +845,51 @@ export default function KnowledgeEngine() {
 
 
   /* =======================================================
-     CARE PLAN
+     SHARED PURPOSE PLAN / CARE PLAN
   ======================================================= */
 
-  const currentPlan =
-    useMemo(
-      () =>
-        getLatestCarePlan(
-          selectedParticipantId,
-          user?.id
-        ),
-      [
-        selectedParticipantId,
-        user?.id,
-      ]
-    );
+  const refreshCarePlan = useCallback(async () => {
+    const participantId = selectedParticipantId;
+    if (!organisationId || !participantId) {
+      setCarePlanVersions([]);
+      setCarePlanLoading(false);
+      setCarePlanError("");
+      return [];
+    }
+    const requestId = ++carePlanRequestRef.current;
+    setCarePlanLoading(true);
+    setCarePlanError("");
+    try {
+      const loaded = await loadSharedCarePlanVersions({ organisationId, participantId });
+      if (requestId !== carePlanRequestRef.current) return [];
+      const safeVersions = Array.isArray(loaded) ? loaded : [];
+      setCarePlanVersions(safeVersions);
+      return safeVersions;
+    } catch (error) {
+      if (requestId !== carePlanRequestRef.current) return [];
+      console.error("Knowledge Engine shared Purpose Plan load failed:", error);
+      setCarePlanVersions([]);
+      setCarePlanError(error?.message || "Unable to load the participant's shared Purpose Plan.");
+      return [];
+    } finally {
+      if (requestId === carePlanRequestRef.current) setCarePlanLoading(false);
+    }
+  }, [organisationId, selectedParticipantId]);
+
+  useEffect(() => {
+    void refreshCarePlan();
+    return () => { carePlanRequestRef.current += 1; };
+  }, [refreshCarePlan]);
+
+  const currentCarePlanVersion = useMemo(() => {
+    if (!carePlanVersions.length) return null;
+    const approved = carePlanVersions.find((v) => String(v?.status || "").toLowerCase() === "approved");
+    if (approved) return approved;
+    const reviewed = carePlanVersions.find((v) => String(v?.status || "").toLowerCase() === "reviewed");
+    return reviewed || carePlanVersions[0] || null;
+  }, [carePlanVersions]);
+
+  const currentPlan = currentCarePlanVersion?.plan || null;
 
 
   /* =======================================================
@@ -1385,6 +1391,8 @@ export default function KnowledgeEngine() {
           Boolean(
             currentPlan
           ),
+        carePlanStatus: currentCarePlanVersion?.status || null,
+        carePlanVersionId: currentCarePlanVersion?.id || null,
       });
     } catch (error) {
       console.error(
@@ -1633,6 +1641,18 @@ export default function KnowledgeEngine() {
           </div>
         ) : null}
 
+        {carePlanError ? (
+          <div className="auth-error" style={{ marginTop: 12 }}>
+            Purpose Plan: {carePlanError}
+          </div>
+        ) : null}
+
+        {carePlanLoading ? (
+          <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>
+            Loading shared Purpose Plan...
+          </div>
+        ) : null}
+
 
         {/* EVIDENCE COUNTERS */}
 
@@ -1692,17 +1712,9 @@ export default function KnowledgeEngine() {
 
           <EvidenceMetric
             icon="🎯"
-            value={
-              currentPlan
-                ? "✓"
-                : "—"
-            }
-            label="Current Plan"
-            active={
-              Boolean(
-                currentPlan
-              )
-            }
+            value={carePlanLoading ? "…" : currentPlan ? "✓" : "—"}
+            label={currentCarePlanVersion?.status ? `${String(currentCarePlanVersion.status).charAt(0).toUpperCase()}${String(currentCarePlanVersion.status).slice(1)} Plan` : "Current Plan"}
+            active={Boolean(currentPlan)}
           />
 
           <EvidenceMetric
@@ -1842,6 +1854,7 @@ export default function KnowledgeEngine() {
           disabled={
             analysing ||
             sessionsLoading ||
+            carePlanLoading ||
             !selectedParticipant
           }
           style={{
@@ -1852,6 +1865,8 @@ export default function KnowledgeEngine() {
         >
           {analysing
             ? "🧠 Theraa Nurse is Analysing Participant Evidence..."
+            : carePlanLoading
+            ? "Loading Purpose Plan..."
             : "🧠 Analyse Participant Evidence"}
         </button>
 
