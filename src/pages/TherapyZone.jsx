@@ -9,9 +9,8 @@ import {
 } from "react";
 
 import {
-  loadCarePlans,
-  loadCarePlanVersions,
-} from "../data/carePlanStore";
+  loadCurrentSharedCarePlan,
+} from "../services/carePlanService";
 
 import {
   useActiveClient,
@@ -160,68 +159,6 @@ function formatDateTime(value) {
   }
 
   return date.toLocaleString();
-}
-
-
-/*
- * Care plans remain on the legacy store
- * temporarily.
- *
- * Shared Care Plans will be migrated after
- * Therapy + Medication sessions are working.
- */
-function getPlanForClient(
-  clientId,
-  ownerId
-) {
-  if (!clientId) {
-    return null;
-  }
-
-  try {
-    if (
-      typeof loadCarePlanVersions ===
-      "function"
-    ) {
-      const versions =
-        loadCarePlanVersions(
-          clientId,
-          ownerId
-        ) || [];
-
-      if (
-        versions.length > 0
-      ) {
-        return (
-          versions[0]?.plan ||
-          null
-        );
-      }
-    }
-  } catch (error) {
-    console.warn(
-      "Unable to load versioned care plan:",
-      error
-    );
-  }
-
-  try {
-    const legacyPlans =
-      loadCarePlans?.() || {};
-
-    return (
-      legacyPlans?.[
-        clientId
-      ] || null
-    );
-  } catch (error) {
-    console.warn(
-      "Unable to load legacy care plan:",
-      error
-    );
-
-    return null;
-  }
 }
 
 
@@ -515,6 +452,9 @@ export default function TherapyZone() {
   const sessionRequestRef =
     useRef(0);
 
+  const carePlanRequestRef =
+    useRef(0);
+
 
   const [
     allSessions,
@@ -531,6 +471,24 @@ export default function TherapyZone() {
   const [
     sessionError,
     setSessionError,
+  ] = useState("");
+
+
+  const [
+    latestPlan,
+    setLatestPlan,
+  ] = useState(null);
+
+
+  const [
+    carePlanLoading,
+    setCarePlanLoading,
+  ] = useState(false);
+
+
+  const [
+    carePlanError,
+    setCarePlanError,
   ] = useState("");
 
 
@@ -777,6 +735,110 @@ export default function TherapyZone() {
   }, [refreshSessions]);
 
 
+  /*
+   * Clear participant-specific Purpose Plan state immediately
+   * when selection changes. This prevents mixed participant
+   * information while the next Supabase request is in flight.
+   */
+  useEffect(() => {
+    carePlanRequestRef.current += 1;
+    setLatestPlan(null);
+    setCarePlanError("");
+  }, [selectedClientId]);
+
+
+  /*
+   * Load the participant's current reviewed or approved
+   * Purpose Plan from the shared Supabase workspace.
+   *
+   * The request guard ignores stale responses if the user
+   * switches participants quickly.
+   */
+  const refreshCarePlan =
+    useCallback(
+      async () => {
+        const participantId =
+          selectedClientId;
+
+        const requestId =
+          ++carePlanRequestRef.current;
+
+        if (
+          !organisationId ||
+          !participantId
+        ) {
+          if (
+            requestId ===
+            carePlanRequestRef.current
+          ) {
+            setLatestPlan(null);
+            setCarePlanLoading(false);
+            setCarePlanError("");
+          }
+
+          return;
+        }
+
+        setCarePlanLoading(true);
+        setCarePlanError("");
+
+        try {
+          const currentPlan =
+            await loadCurrentSharedCarePlan({
+              organisationId,
+              participantId,
+            });
+
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          setLatestPlan(
+            currentPlan?.plan || null
+          );
+        } catch (error) {
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          console.error(
+            "Unable to load shared Therapy Purpose Plan context:",
+            error
+          );
+
+          setLatestPlan(null);
+
+          setCarePlanError(
+            error?.message ||
+              "Unable to load the participant Purpose Plan."
+          );
+        } finally {
+          if (
+            requestId ===
+            carePlanRequestRef.current
+          ) {
+            setCarePlanLoading(false);
+          }
+        }
+      },
+      [
+        organisationId,
+        selectedClientId,
+      ]
+    );
+
+
+  useEffect(() => {
+    void refreshCarePlan();
+  }, [refreshCarePlan]);
+
+
   const selectedClient =
     useMemo(
       () =>
@@ -788,20 +850,6 @@ export default function TherapyZone() {
       [
         clients,
         selectedClientId,
-      ]
-    );
-
-
-  const latestPlan =
-    useMemo(
-      () =>
-        getPlanForClient(
-          selectedClientId,
-          user?.id
-        ),
-      [
-        selectedClientId,
-        user?.id,
       ]
     );
 
@@ -1776,6 +1824,18 @@ export default function TherapyZone() {
       ) : null}
 
 
+      {carePlanError ? (
+        <div
+          className="auth-error"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {carePlanError}
+        </div>
+      ) : null}
+
+
       <ClientSelectorBar
         right={
           <div className="therapy-selector-hint">
@@ -1869,14 +1929,18 @@ export default function TherapyZone() {
           icon="🎯"
           label="Purpose Plan"
           value={
-            therapyGoals
+            carePlanLoading
+              ? "Loading"
+              : therapyGoals
               ? "Connected"
               : "Missing"
           }
           detail={
-            therapyGoals
-              ? "Therapy goals available"
-              : "Shared care plans migrate next"
+            carePlanLoading
+              ? "Loading shared Purpose Plan…"
+              : therapyGoals
+              ? "Shared therapy goals available"
+              : "No reviewed or approved Purpose Plan"
           }
           level={
             therapyGoals
@@ -2706,7 +2770,24 @@ export default function TherapyZone() {
 
           <TherapyCard
             title="Purpose Plan Connection"
-            subtitle="Current plan information relevant to therapy."
+            subtitle="Current reviewed or approved shared plan information relevant to therapy."
+            right={
+              <StatusBadge
+                level={
+                  carePlanLoading
+                    ? "neutral"
+                    : latestPlan
+                    ? "low"
+                    : "neutral"
+                }
+              >
+                {carePlanLoading
+                  ? "Loading…"
+                  : latestPlan
+                  ? "Shared plan"
+                  : "No current plan"}
+              </StatusBadge>
+            }
           >
 
             <div className="therapy-plan-block">
@@ -2715,8 +2796,10 @@ export default function TherapyZone() {
               </span>
 
               <p>
-                {therapyGoals ||
-                  "No shared Purpose Plan has been migrated yet."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : therapyGoals ||
+                    "No reviewed or approved therapy goals are recorded."}
               </p>
             </div>
 
@@ -2727,8 +2810,10 @@ export default function TherapyZone() {
               </span>
 
               <p>
-                {functionalSupports ||
-                  "No functional supports recorded in the current plan."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : functionalSupports ||
+                    "No functional supports are recorded in the current shared Purpose Plan."}
               </p>
             </div>
 
@@ -2739,8 +2824,10 @@ export default function TherapyZone() {
               </span>
 
               <p>
-                {clinicalConsiderations ||
-                  "No health or clinical considerations recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : clinicalConsiderations ||
+                    "No health or clinical considerations are recorded in the current shared Purpose Plan."}
               </p>
             </div>
 
@@ -2751,8 +2838,10 @@ export default function TherapyZone() {
               </span>
 
               <p>
-                {planRisks ||
-                  "No plan risks recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : planRisks ||
+                    "No risks or safeguards are recorded in the current shared Purpose Plan."}
               </p>
             </div>
 

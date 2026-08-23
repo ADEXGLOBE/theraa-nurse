@@ -18,6 +18,10 @@ import {
   listOrganisationMembers,
 } from "../services/teamService";
 
+import RosterBoard from "../features/workforce/RosterBoard";
+import CompliancePanel from "../features/workforce/CompliancePanel";
+import ReminderPanel from "../features/workforce/ReminderPanel";
+
 const EMPTY_FORM = {
   fullName: "",
   email: "",
@@ -83,6 +87,9 @@ export default function TeamManagement() {
 
   const [message, setMessage] =
     useState("");
+
+  const [activeTab, setActiveTab] =
+    useState("team");
 
   const canInvite = [
     "provider_admin",
@@ -257,14 +264,12 @@ export default function TeamManagement() {
             Organisation Management
           </div>
 
-          <h1>Team & Invitations</h1>
+          <h1>Workforce & Care Delivery</h1>
 
           <p>
-            Invite managers, support
-            coordinators, support workers,
-            nurses and allied-health
-            professionals into the same
-            provider workspace.
+            Manage your team, roster care delivery,
+            monitor workforce compliance and coordinate
+            professional reminders from one provider workspace.
           </p>
 
           <div className="team-workspace-name">
@@ -281,6 +286,44 @@ export default function TeamManagement() {
         </div>
       </header>
 
+      <section
+        className="card premium-card"
+        style={{
+          marginBottom: 16,
+          padding: 10,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          {[
+            { id: "team", label: "👥 Team" },
+            { id: "roster", label: "📅 Roster" },
+            { id: "compliance", label: "🪪 Compliance" },
+            { id: "reminders", label: "🔔 Reminders" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={
+                activeTab === tab.id
+                  ? "role-btn active"
+                  : "role-btn"
+              }
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeTab === "team" ? (
+        <>
       <section className="team-stat-grid">
         <TeamStat
           icon="👥"
@@ -611,6 +654,22 @@ export default function TeamManagement() {
           </section>
         </aside>
       </div>
+        </>
+      ) : null}
+
+      {activeTab === "roster" ? (
+        <RosterBoard />
+      ) : null}
+
+      {activeTab === "compliance" ? (
+  <CompliancePanel />
+) : null}
+
+
+     {activeTab === "reminders" ? (
+  <ReminderPanel />
+) : null}
+    
     </div>
   );
 }

@@ -1,7 +1,8 @@
 // src/pages/ClientFiles.jsx
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { loadClients } from "../data/clientsStore";
+import { useActiveClient } from "../context/ActiveClientContext";
+import { useWorkspace } from "../context/WorkspaceContext";
 
 import {
   saveDocumentForClient,
@@ -46,10 +47,24 @@ function getExtractionLabel(doc) {
 
 export default function ClientFiles() {
   const { user } = useAuth();
+  const {
+  organisationId,
+} = useWorkspace();
+
+  const {
+    clients = [],
+    clientsReady,
+    activeClientId,
+    setActiveClientId,
+  } = useActiveClient();
+
   const fileInputRef = useRef(null);
 
-  const [clients, setClients] = useState([]);
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const fallbackId = clients[0]?.id || "";
+
+  const selectedClientId =
+    activeClientId || fallbackId;
+
   const [documents, setDocuments] = useState([]);
 
   const [title, setTitle] = useState("");
@@ -62,25 +77,27 @@ export default function ClientFiles() {
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-
-    const loaded = loadClients(user.id);
-    setClients(loaded);
-
-    if (loaded.length > 0) {
-      setSelectedClientId((current) => {
-        const currentStillExists = loaded.some(
-          (client) => client.id === current
-        );
-
-        return currentStillExists ? current : loaded[0].id;
-      });
-    } else {
-      setSelectedClientId("");
+    if (!activeClientId && fallbackId) {
+      setActiveClientId(fallbackId);
     }
-  }, [user?.id]);
+  }, [
+    activeClientId,
+    fallbackId,
+    setActiveClientId,
+  ]);
 
   useEffect(() => {
+    setDocuments([]);
+    setUploadStatus("");
+    setTitle("");
+    setCategory("Progress Note");
+    setTextContent("");
+    setFile(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
     void refreshDocuments();
   }, [selectedClientId, user?.id]);
 
@@ -96,9 +113,17 @@ export default function ClientFiles() {
         user?.id
       );
 
-      setDocuments(docs);
+      setDocuments(
+        Array.isArray(docs)
+          ? docs
+          : []
+      );
     } catch (error) {
-      console.error("Unable to load documents:", error);
+      console.error(
+        "Unable to load documents:",
+        error
+      );
+
       setDocuments([]);
     }
   }
@@ -201,15 +226,21 @@ export default function ClientFiles() {
     );
 
     try {
-      const savedDocument = await saveDocumentForClient({
-        clientId: selectedClientId,
-        ownerId: user.id,
-        title,
-        category,
-        file,
-        textContent,
-      });
+     const savedDocument =
+  await saveDocumentForClient({
+    organisationId,
 
+    participantId:
+      selectedClientId,
+
+    userId:
+      user.id,
+
+    title,
+    category,
+    file,
+    textContent,
+  });
       await refreshDocuments();
       resetForm();
 
@@ -254,6 +285,34 @@ export default function ClientFiles() {
   const selectedParticipant = clients.find(
     (client) => client.id === selectedClientId
   );
+
+  if (!clientsReady) {
+    return (
+      <div className="card">
+        <div className="card-title">
+          Documents & Evidence
+        </div>
+
+        <div className="card-subtitle">
+          Loading authorised participants...
+        </div>
+      </div>
+    );
+  }
+
+  if (!clients.length) {
+    return (
+      <div className="card">
+        <div className="card-title">
+          Documents & Evidence
+        </div>
+
+        <div className="card-subtitle">
+          No authorised participants are currently available.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="zone-page evidence-page">
@@ -304,7 +363,7 @@ export default function ClientFiles() {
               className="input"
               value={selectedClientId}
               onChange={(event) =>
-                setSelectedClientId(event.target.value)
+                setActiveClientId(event.target.value)
               }
               disabled={isUploading}
             >

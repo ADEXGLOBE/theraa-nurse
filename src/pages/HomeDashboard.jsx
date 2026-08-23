@@ -6,7 +6,10 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { useActiveClient } from "../context/ActiveClientContext";
 
 import { listDocumentsForClient } from "../features/documents/documentService";
-import { loadCarePlanVersions } from "../data/carePlanStore";
+import {
+  loadSharedCarePlanVersions,
+  loadCurrentSharedCarePlan,
+} from "../services/carePlanService";
 
 function daysAgo(iso) {
   if (!iso) return null;
@@ -154,12 +157,6 @@ export default function HomeDashboard() {
       try {
         const rows = await Promise.all(
           clients.map(async (client) => {
-            /*
-             * Documents and plans still use the current
-             * local stores during the migration phase.
-             * ownerId is retained so existing prototype
-             * records continue to load.
-             */
             const docs =
               await listDocumentsForClient(
                 client.id,
@@ -167,14 +164,28 @@ export default function HomeDashboard() {
               );
 
             const versions =
-              loadCarePlanVersions(
-                client.id,
-                user?.id
-              ) || [];
+              organisationId
+                ? await loadSharedCarePlanVersions({
+                    organisationId,
+                    participantId: client.id,
+                  })
+                : [];
 
-            const latest = versions[0] || null;
+            const currentPlan =
+              versions.find(
+                (version) =>
+                  version?.status === "approved"
+              ) ||
+              versions.find(
+                (version) =>
+                  version?.status === "reviewed"
+              ) ||
+              null;
+
             const hasReviewedPlan =
-              latest?.status === "reviewed";
+              ["reviewed", "approved"].includes(
+                currentPlan?.status
+              );
 
             const lastDocAt =
               docs?.[0]?.createdAt || null;
@@ -234,7 +245,7 @@ export default function HomeDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [clients, user?.id]);
+  }, [clients, organisationId, user?.id]);
 
   const selectedClient = useMemo(
     () =>
@@ -245,26 +256,68 @@ export default function HomeDashboard() {
     [clients, activeClientId]
   );
 
-  const workerPlan = useMemo(() => {
-    if (!selectedClient?.id) {
-      return null;
+  const [workerPlan, setWorkerPlan] =
+    useState(null);
+
+  const [workerPlanLoading, setWorkerPlanLoading] =
+    useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWorkerPlan() {
+      const participantId =
+        selectedClient?.id;
+
+      if (!organisationId || !participantId) {
+        setWorkerPlan(null);
+        setWorkerPlanLoading(false);
+        return;
+      }
+
+      /*
+       * Clear the previous participant immediately so
+       * stale plan content never remains on screen while
+       * a new participant is loading.
+       */
+      setWorkerPlan(null);
+      setWorkerPlanLoading(true);
+
+      try {
+        const current =
+          await loadCurrentSharedCarePlan({
+            organisationId,
+            participantId,
+          });
+
+        if (!cancelled) {
+          setWorkerPlan(current || null);
+        }
+      } catch (error) {
+        console.error(
+          "Unable to load worker Purpose Plan:",
+          error
+        );
+
+        if (!cancelled) {
+          setWorkerPlan(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkerPlanLoading(false);
+        }
+      }
     }
 
-    const versions =
-      loadCarePlanVersions(
-        selectedClient.id,
-        user?.id
-      ) || [];
+    void loadWorkerPlan();
 
-    return (
-      versions.find(
-        (version) =>
-          version.status === "reviewed"
-      ) ||
-      versions[0] ||
-      null
-    );
-  }, [selectedClient?.id, user?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    organisationId,
+    selectedClient?.id,
+  ]);
 
   const totalDocuments = summaries.reduce(
     (sum, client) =>
@@ -307,7 +360,7 @@ export default function HomeDashboard() {
           </h1>
 
           <p>
-            Manage participants, monitor care-plan
+            Manage participants, monitor Purpose Plan
             readiness, and guide daily support actions
             from one professional workspace.
           </p>
@@ -381,9 +434,9 @@ export default function HomeDashboard() {
 
         <MetricCard
           icon="✅"
-          title="Reviewed Plans"
+          title="Current Plans"
           value={reviewedPlans}
-          subtitle="Ready for support delivery"
+          subtitle="Reviewed or approved for support"
         />
 
         <MetricCard
@@ -451,7 +504,7 @@ export default function HomeDashboard() {
 
               <div className="card-subtitle">
                 Review documentation readiness, risk
-                level, and care-plan status.
+                level, and Purpose Plan status.
               </div>
             </div>
 
@@ -635,10 +688,15 @@ export default function HomeDashboard() {
                 </div>
               ) : null}
 
-              {!workerPlan ? (
+              {workerPlanLoading ? (
                 <div className="notice-box">
-                  No saved care plan is currently
-                  available for this participant.
+                  Loading shared Purpose Plan…
+                </div>
+              ) : !workerPlan ? (
+                <div className="notice-box">
+                  No reviewed or approved shared Purpose
+                  Plan is currently available for this
+                  participant.
                 </div>
               ) : (
                 <div className="worker-focus-grid">
@@ -647,8 +705,8 @@ export default function HomeDashboard() {
 
                     <ul>
                       <li>
-                        Follow the latest approved
-                        care-plan priorities.
+                        Follow the latest reviewed or
+                        approved Purpose Plan priorities.
                       </li>
 
                       <li>

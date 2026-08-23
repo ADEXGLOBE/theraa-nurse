@@ -8,8 +8,8 @@ import {
 } from "react";
 
 import {
-  loadCarePlanVersions,
-} from "../data/carePlanStore";
+  loadCurrentSharedCarePlan,
+} from "../services/carePlanService";
 
 import {
   useActiveClient,
@@ -164,39 +164,6 @@ function getCrossZoneSessions(
       "vpn",
     ].includes(session?.zone)
   );
-}
-
-/*
- * Care plans remain on the legacy store
- * temporarily.
- *
- * Shared care plans are a later V3 migration.
- */
-function getLatestCarePlan(
-  clientId,
-  ownerId
-) {
-  if (!clientId) return null;
-
-  try {
-    const versions =
-      loadCarePlanVersions(
-        clientId,
-        ownerId
-      ) || [];
-
-    return (
-      versions[0]?.plan ||
-      null
-    );
-  } catch (error) {
-    console.warn(
-      "Unable to load staff-note care-plan context:",
-      error
-    );
-
-    return null;
-  }
 }
 
 function getEscalationLevel(value) {
@@ -361,6 +328,9 @@ export default function StaffZone() {
   const sessionRequestRef =
     useRef(0);
 
+  const carePlanRequestRef =
+    useRef(0);
+
   const [
     allSessions,
     setAllSessions,
@@ -374,6 +344,21 @@ export default function StaffZone() {
   const [
     sessionError,
     setSessionError,
+  ] = useState("");
+
+  const [
+    carePlan,
+    setCarePlan,
+  ] = useState(null);
+
+  const [
+    carePlanLoading,
+    setCarePlanLoading,
+  ] = useState(false);
+
+  const [
+    carePlanError,
+    setCarePlanError,
   ] = useState("");
 
   const [saving, setSaving] =
@@ -494,9 +479,13 @@ export default function StaffZone() {
    */
   useEffect(() => {
     sessionRequestRef.current += 1;
+    carePlanRequestRef.current += 1;
 
     setAllSessions({});
     setSessionError("");
+
+    setCarePlan(null);
+    setCarePlanError("");
 
     resetForm();
   }, [selectedClientId]);
@@ -598,6 +587,93 @@ export default function StaffZone() {
     void refreshSessions();
   }, [refreshSessions]);
 
+  /*
+   * Load the participant's current reviewed or approved
+   * Purpose Plan from the shared Supabase workspace.
+   *
+   * The request guard prevents an older participant's plan
+   * from appearing after a rapid participant switch.
+   */
+  const refreshCarePlan =
+    useCallback(async () => {
+      const participantId =
+        selectedClientId;
+
+      const requestId =
+        ++carePlanRequestRef.current;
+
+      if (
+        !organisationId ||
+        !participantId
+      ) {
+        if (
+          requestId ===
+          carePlanRequestRef.current
+        ) {
+          setCarePlan(null);
+          setCarePlanLoading(false);
+          setCarePlanError("");
+        }
+
+        return;
+      }
+
+      setCarePlanLoading(true);
+      setCarePlanError("");
+
+      try {
+        const currentPlan =
+          await loadCurrentSharedCarePlan({
+            organisationId,
+            participantId,
+          });
+
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return;
+        }
+
+        setCarePlan(
+          currentPlan?.plan || null
+        );
+      } catch (error) {
+        if (
+          requestId !==
+          carePlanRequestRef.current
+        ) {
+          return;
+        }
+
+        console.error(
+          "Unable to load shared Staff Purpose Plan context:",
+          error
+        );
+
+        setCarePlan(null);
+
+        setCarePlanError(
+          error?.message ||
+            "Unable to load the participant Purpose Plan."
+        );
+      } finally {
+        if (
+          requestId ===
+          carePlanRequestRef.current
+        ) {
+          setCarePlanLoading(false);
+        }
+      }
+    }, [
+      organisationId,
+      selectedClientId,
+    ]);
+
+  useEffect(() => {
+    void refreshCarePlan();
+  }, [refreshCarePlan]);
+
   const selectedClient =
     useMemo(
       () =>
@@ -611,18 +687,6 @@ export default function StaffZone() {
         selectedClientId,
       ]
     );
-
-  const carePlan = useMemo(
-    () =>
-      getLatestCarePlan(
-        selectedClientId,
-        user?.id
-      ),
-    [
-      selectedClientId,
-      user?.id,
-    ]
-  );
 
   const staffSessions =
     useMemo(
@@ -1149,6 +1213,17 @@ export default function StaffZone() {
         </div>
       ) : null}
 
+      {carePlanError ? (
+        <div
+          className="auth-error"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {carePlanError}
+        </div>
+      ) : null}
+
       <section className="staff-metric-grid">
         <StaffMetric
           icon="📝"
@@ -1228,9 +1303,11 @@ export default function StaffZone() {
               : "Missing"
           }
           detail={
-            currentGoals
-              ? "Participant goals available"
-              : "Care Plans migrate next"
+            carePlanLoading
+              ? "Loading shared Purpose Plan…"
+              : currentGoals
+              ? "Shared participant goals available"
+              : "No reviewed or approved Purpose Plan"
           }
           level={
             currentGoals
@@ -2106,7 +2183,24 @@ export default function StaffZone() {
         <aside className="staff-v2-secondary">
           <StaffCard
             title="Purpose Plan Context"
-            subtitle="Current participant information relevant to daily support."
+            subtitle="Current reviewed or approved shared participant information relevant to daily support."
+            right={
+              <StatusBadge
+                level={
+                  carePlanLoading
+                    ? "neutral"
+                    : carePlan
+                    ? "good"
+                    : "neutral"
+                }
+              >
+                {carePlanLoading
+                  ? "Loading…"
+                  : carePlan
+                  ? "Shared plan"
+                  : "No current plan"}
+              </StatusBadge>
+            }
           >
             <div className="staff-plan-block">
               <span>
@@ -2114,8 +2208,10 @@ export default function StaffZone() {
               </span>
 
               <p>
-                {currentGoals ||
-                  "No shared Purpose Plan has been migrated yet."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : currentGoals ||
+                    "No reviewed or approved participant goals are recorded."}
               </p>
             </div>
 
@@ -2125,8 +2221,10 @@ export default function StaffZone() {
               </span>
 
               <p>
-                {communicationContext ||
-                  "No communication strategies recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : communicationContext ||
+                    "No communication strategies are recorded in the current shared Purpose Plan."}
               </p>
             </div>
 
@@ -2136,8 +2234,10 @@ export default function StaffZone() {
               </span>
 
               <p>
-                {supportContext ||
-                  "No functional support information recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : supportContext ||
+                    "No functional support information is recorded in the current shared Purpose Plan."}
               </p>
             </div>
 
@@ -2147,8 +2247,10 @@ export default function StaffZone() {
               </span>
 
               <p>
-                {riskContext ||
-                  "No risk information recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : riskContext ||
+                    "No risk information is recorded in the current shared Purpose Plan."}
               </p>
             </div>
 
@@ -2158,8 +2260,10 @@ export default function StaffZone() {
               </span>
 
               <p>
-                {behaviourContext ||
-                  "No behaviour support information recorded."}
+                {carePlanLoading
+                  ? "Loading shared Purpose Plan context…"
+                  : behaviourContext ||
+                    "No behaviour support information is recorded in the current shared Purpose Plan."}
               </p>
             </div>
           </StaffCard>

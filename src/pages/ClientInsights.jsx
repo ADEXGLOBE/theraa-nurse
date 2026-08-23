@@ -1,8 +1,9 @@
 // src/pages/ClientInsights.jsx
-import { useEffect, useMemo, useState } from "react";
-import { loadClients } from "../data/clientsStore";
-import { loadSessions } from "../data/sessionStore";
-import { loadCarePlanVersions } from "../data/carePlanStore";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActiveClient } from "../context/ActiveClientContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { loadParticipantSessions } from "../services/sessionService";
+import { loadSharedCarePlanVersions } from "../services/carePlanService";
 import { buildClientDocumentIntelligence } from "../features/documents/documentService";
 import {
   generateMonthlyNdisReport,
@@ -448,31 +449,76 @@ function EmptyState({
 export default function ClientInsights() {
   const { user } = useAuth();
 
-  const clients = useMemo(
-    () => loadClients(user?.id),
-    [user?.id]
-  );
+  const {
+    organisationId,
+  } = useWorkspace();
 
-  const [selectedClientId, setSelectedClientId] =
-    useState("");
+  const {
+    clients,
+    clientsReady,
+    activeClientId,
+    setActiveClientId,
+  } = useActiveClient();
+
+  const fallbackId =
+    clients[0]?.id || "";
+
+  const selectedClientId =
+    activeClientId || fallbackId;
+
+  const sessionRequestRef =
+    useRef(0);
+
+  const carePlanRequestRef =
+    useRef(0);
+
+  const evidenceRequestRef =
+    useRef(0);
 
   const [
     documentIntelligence,
     setDocumentIntelligence,
   ] = useState(null);
 
-  const [isLoadingEvidence, setIsLoadingEvidence] =
-    useState(false);
+  const [
+    sessions,
+    setSessions,
+  ] = useState([]);
+
+  const [
+    versions,
+    setVersions,
+  ] = useState([]);
+
+  const [
+    isLoadingEvidence,
+    setIsLoadingEvidence,
+  ] = useState(false);
+
+  const [
+    isLoadingSessions,
+    setIsLoadingSessions,
+  ] = useState(false);
+
+  const [
+    isLoadingCarePlans,
+    setIsLoadingCarePlans,
+  ] = useState(false);
+
+  const [
+    loadError,
+    setLoadError,
+  ] = useState("");
 
   useEffect(() => {
-    if (!selectedClientId && clients.length > 0) {
-      setSelectedClientId(clients[0].id);
+    if (!activeClientId && fallbackId) {
+      setActiveClientId(fallbackId);
     }
-
-    if (clients.length === 0) {
-      setSelectedClientId("");
-    }
-  }, [clients, selectedClientId]);
+  }, [
+    activeClientId,
+    fallbackId,
+    setActiveClientId,
+  ]);
 
   const client = useMemo(
     () =>
@@ -482,77 +528,280 @@ export default function ClientInsights() {
     [clients, selectedClientId]
   );
 
-  const sessionsMap = useMemo(
-    () => loadSessions(user?.id) || {},
-    [user?.id]
-  );
-
-  const sessions = useMemo(
-    () =>
-      selectedClientId
-        ? sessionsMap?.[selectedClientId] || []
-        : [],
-    [sessionsMap, selectedClientId]
-  );
-
-  const versions = useMemo(() => {
-    if (!selectedClientId) return [];
-
-    return (
-      loadCarePlanVersions(
-        selectedClientId,
-        user?.id
-      ) || []
-    );
-  }, [selectedClientId, user?.id]);
-
-  const latestVersion = versions[0] || null;
-  const plan = latestVersion?.plan || {};
-  const sections = plan?.sections || {};
-
   useEffect(() => {
-    let mounted = true;
+    sessionRequestRef.current += 1;
+    carePlanRequestRef.current += 1;
+    evidenceRequestRef.current += 1;
 
-    async function loadEvidence() {
-      if (!selectedClientId) {
-        setDocumentIntelligence(null);
-        return;
-      }
+    setSessions([]);
+    setVersions([]);
+    setDocumentIntelligence(null);
+    setLoadError("");
+  }, [selectedClientId]);
 
-      setIsLoadingEvidence(true);
+  const refreshSessions =
+    useCallback(
+      async () => {
+        if (
+          !organisationId ||
+          !selectedClientId
+        ) {
+          setSessions([]);
+          setIsLoadingSessions(false);
+          return;
+        }
 
-      try {
-        const data =
-          await buildClientDocumentIntelligence(
-            selectedClientId,
-            user?.id
+        const requestId =
+          ++sessionRequestRef.current;
+
+        setIsLoadingSessions(true);
+
+        try {
+          const loaded =
+            await loadParticipantSessions({
+              organisationId,
+              participantId:
+                selectedClientId,
+            });
+
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
+          setSessions(
+            Array.isArray(loaded)
+              ? loaded
+              : []
+          );
+        } catch (error) {
+          if (
+            requestId !==
+            sessionRequestRef.current
+          ) {
+            return;
+          }
+
+          console.error(
+            "Unable to load shared participant sessions for Insights:",
+            error
           );
 
-        if (mounted) {
-          setDocumentIntelligence(data);
+          setSessions([]);
+
+          setLoadError(
+            error?.message ||
+              "Unable to load shared participant sessions."
+          );
+        } finally {
+          if (
+            requestId ===
+            sessionRequestRef.current
+          ) {
+            setIsLoadingSessions(false);
+          }
         }
-      } catch (error) {
-        console.error(
-          "Unable to load document intelligence:",
-          error
+      },
+      [
+        organisationId,
+        selectedClientId,
+      ]
+    );
+
+  const refreshCarePlans =
+    useCallback(
+      async () => {
+        if (
+          !organisationId ||
+          !selectedClientId
+        ) {
+          setVersions([]);
+          setIsLoadingCarePlans(false);
+          return;
+        }
+
+        const requestId =
+          ++carePlanRequestRef.current;
+
+        setIsLoadingCarePlans(true);
+
+        try {
+          const loaded =
+            await loadSharedCarePlanVersions({
+              organisationId,
+              participantId:
+                selectedClientId,
+            });
+
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          setVersions(
+            Array.isArray(loaded)
+              ? loaded
+              : []
+          );
+        } catch (error) {
+          if (
+            requestId !==
+            carePlanRequestRef.current
+          ) {
+            return;
+          }
+
+          console.error(
+            "Unable to load shared Purpose Plans for Insights:",
+            error
+          );
+
+          setVersions([]);
+
+          setLoadError(
+            error?.message ||
+              "Unable to load shared Purpose Plans."
+          );
+        } finally {
+          if (
+            requestId ===
+            carePlanRequestRef.current
+          ) {
+            setIsLoadingCarePlans(false);
+          }
+        }
+      },
+      [
+        organisationId,
+        selectedClientId,
+      ]
+    );
+
+  const refreshEvidence =
+    useCallback(
+      async () => {
+        if (!selectedClientId) {
+          setDocumentIntelligence(null);
+          setIsLoadingEvidence(false);
+          return;
+        }
+
+        const requestId =
+          ++evidenceRequestRef.current;
+
+        setIsLoadingEvidence(true);
+
+        try {
+          const data =
+            await buildClientDocumentIntelligence(
+              selectedClientId,
+              user?.id
+            );
+
+          if (
+            requestId !==
+            evidenceRequestRef.current
+          ) {
+            return;
+          }
+
+          setDocumentIntelligence(data);
+        } catch (error) {
+          if (
+            requestId !==
+            evidenceRequestRef.current
+          ) {
+            return;
+          }
+
+          console.error(
+            "Unable to load document intelligence:",
+            error
+          );
+
+          setDocumentIntelligence(null);
+
+          setLoadError(
+            error?.message ||
+              "Unable to load participant document intelligence."
+          );
+        } finally {
+          if (
+            requestId ===
+            evidenceRequestRef.current
+          ) {
+            setIsLoadingEvidence(false);
+          }
+        }
+      },
+      [
+        selectedClientId,
+        user?.id,
+      ]
+    );
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+
+  useEffect(() => {
+    void refreshCarePlans();
+  }, [refreshCarePlans]);
+
+  useEffect(() => {
+    void refreshEvidence();
+  }, [refreshEvidence]);
+
+  const latestVersion =
+    useMemo(() => {
+      if (!versions.length) {
+        return null;
+      }
+
+      const approved =
+        versions.find(
+          (version) =>
+            version?.status === "approved"
         );
 
-        if (mounted) {
-          setDocumentIntelligence(null);
-        }
-      } finally {
-        if (mounted) {
-          setIsLoadingEvidence(false);
-        }
+      if (approved) {
+        return approved;
       }
-    }
 
-    void loadEvidence();
+      const reviewed =
+        versions.find(
+          (version) =>
+            version?.status === "reviewed"
+        );
 
-    return () => {
-      mounted = false;
-    };
-  }, [selectedClientId, user?.id]);
+      if (reviewed) {
+        return reviewed;
+      }
+
+      return versions[0] || null;
+    }, [versions]);
+
+  const plan =
+    latestVersion?.plan || {};
+
+  const sections =
+    plan?.sections || {};
+
+  if (!clientsReady) {
+    return (
+      <div className="zone-page">
+        <EmptyState
+          icon="⏳"
+          title="Loading participants"
+          description="Checking your authorised participant access."
+        />
+      </div>
+    );
+  }
 
   if (!client) {
     return (
@@ -560,7 +809,7 @@ export default function ClientInsights() {
         <EmptyState
           icon="👥"
           title="No participant available"
-          description="Add a participant before opening Insights."
+          description="Ask your coordinator or manager to assign participant access."
         />
       </div>
     );
@@ -695,13 +944,15 @@ export default function ClientInsights() {
 
   if (
     latestVersion &&
-    latestVersion.status !== "reviewed"
+    !["reviewed", "approved"].includes(
+      latestVersion.status
+    )
   ) {
     coordinatorAlerts.push({
       level: "medium",
-      title: "Care plan awaiting review",
+      title: "Purpose Plan awaiting review",
       detail:
-        "The latest version is still marked as a draft.",
+        "The current shared version is still marked as a draft.",
     });
   }
 
@@ -788,7 +1039,7 @@ export default function ClientInsights() {
               <select
                 value={selectedClientId}
                 onChange={(event) =>
-                  setSelectedClientId(
+                  setActiveClientId(
                     event.target.value
                   )
                 }
@@ -842,17 +1093,32 @@ export default function ClientInsights() {
 
           <StatusBadge
             level={
-              latestVersion?.status === "reviewed"
+              ["reviewed", "approved"].includes(
+                latestVersion?.status
+              )
                 ? "low"
                 : "medium"
             }
           >
-            {latestVersion?.status === "reviewed"
+            {latestVersion?.status === "approved"
+              ? "Plan approved"
+              : latestVersion?.status === "reviewed"
               ? "Plan reviewed"
               : "Plan needs review"}
           </StatusBadge>
         </div>
       </header>
+
+      {loadError ? (
+        <div
+          className="auth-error"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {loadError}
+        </div>
+      ) : null}
 
       <section className="insights-metric-grid">
         <MetricCard
@@ -1382,10 +1648,12 @@ export default function ClientInsights() {
         </Card>
       </div>
 
-      {isLoadingEvidence ? (
+      {isLoadingEvidence ||
+      isLoadingSessions ||
+      isLoadingCarePlans ? (
         <div className="insights-loading">
           <span className="evidence-processing-spinner" />
-          Refreshing participant evidence intelligence…
+          Refreshing shared participant intelligence…
         </div>
       ) : null}
     </div>
