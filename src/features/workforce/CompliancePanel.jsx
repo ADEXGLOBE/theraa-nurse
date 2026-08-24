@@ -26,6 +26,10 @@ import {
   verifyStaffCompliance,
 } from "../../services/complianceService";
 
+import ComplianceDocumentUpload from "./ComplianceDocumentUpload";
+import ComplianceDocumentRegister from "./ComplianceDocumentRegister";
+import ComplianceGapPanel from "./ComplianceGapPanel";
+
 
 const EMPTY_FORM = {
   staffUserId: "",
@@ -230,6 +234,12 @@ export default function CompliancePanel() {
     successMessage,
     setSuccessMessage,
   ] = useState("");
+
+
+  const [
+    documentRefreshKey,
+    setDocumentRefreshKey,
+  ] = useState(0);
 
 
   const canManageCompliance =
@@ -549,6 +559,11 @@ export default function CompliancePanel() {
       resetForm();
 
       await refreshCompliance();
+
+      setDocumentRefreshKey(
+        (current) =>
+          current + 1
+      );
     } catch (error) {
       setErrorMessage(
         error?.message ||
@@ -590,6 +605,11 @@ export default function CompliancePanel() {
       );
 
       await refreshCompliance();
+
+      setDocumentRefreshKey(
+        (current) =>
+          current + 1
+      );
     } catch (error) {
       setErrorMessage(
         error?.message ||
@@ -676,6 +696,11 @@ export default function CompliancePanel() {
       );
 
       await refreshCompliance();
+
+      setDocumentRefreshKey(
+        (current) =>
+          current + 1
+      );
     } catch (error) {
       setErrorMessage(
         error?.message ||
@@ -730,6 +755,14 @@ export default function CompliancePanel() {
         record.status ===
         "pending"
     ).length;
+
+
+  function handleComplianceDocumentUploaded() {
+    setDocumentRefreshKey(
+      (current) =>
+        current + 1
+    );
+  }
 
 
   return (
@@ -1309,6 +1342,57 @@ export default function CompliancePanel() {
             </ol>
           </section>
         </aside>
+      </div>
+
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "minmax(320px, 0.8fr) minmax(0, 1.8fr)",
+          gap: 16,
+          alignItems: "start",
+          marginTop: 16,
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            minWidth: 0,
+          }}
+        >
+          <ComplianceDocumentUpload
+            onUploaded={
+              handleComplianceDocumentUploaded
+            }
+          />
+        </div>
+
+        <div
+          style={{
+            minWidth: 0,
+            width: "100%",
+          }}
+        >
+          <ComplianceDocumentRegister
+            refreshKey={
+              documentRefreshKey
+            }
+          />
+        </div>
+      </div>
+
+
+      <div
+        style={{
+          marginTop: 16,
+        }}
+      >
+        <ComplianceGapPanel
+          refreshKey={
+            documentRefreshKey
+          }
+        />
       </div>
     </div>
   );
