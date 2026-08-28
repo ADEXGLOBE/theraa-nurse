@@ -21,6 +21,8 @@ import {
 import RosterBoard from "../features/workforce/RosterBoard";
 import CompliancePanel from "../features/workforce/CompliancePanel";
 import ReminderPanel from "../features/workforce/ReminderPanel";
+import ProfessionalOnboardingPanel from "../features/workforce/ProfessionalOnboardingPanel";
+
 
 const EMPTY_FORM = {
   fullName: "",
@@ -300,12 +302,28 @@ export default function TeamManagement() {
             flexWrap: "wrap",
           }}
         >
-          {[
-            { id: "team", label: "👥 Team" },
-            { id: "roster", label: "📅 Roster" },
-            { id: "compliance", label: "🪪 Compliance" },
-            { id: "reminders", label: "🔔 Reminders" },
-          ].map((tab) => (
+{[
+  {
+    id: "team",
+    label: "👥 Team",
+  },
+  {
+    id: "onboarding",
+    label: "🧑‍⚕️ Onboarding",
+  },
+  {
+    id: "roster",
+    label: "📅 Roster",
+  },
+  {
+    id: "compliance",
+    label: "🪪 Compliance",
+  },
+  {
+    id: "reminders",
+    label: "🔔 Reminders",
+  },
+].map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -656,7 +674,9 @@ export default function TeamManagement() {
       </div>
         </>
       ) : null}
-
+      {activeTab === "onboarding" ? (
+  <ProfessionalOnboardingPanel />
+) : null}
       {activeTab === "roster" ? (
         <RosterBoard />
       ) : null}

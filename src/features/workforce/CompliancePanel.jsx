@@ -30,6 +30,8 @@ import ComplianceDocumentUpload from "./ComplianceDocumentUpload";
 import ComplianceDocumentRegister from "./ComplianceDocumentRegister";
 import ComplianceGapPanel from "./ComplianceGapPanel";
 
+import { syncOrganisationComplianceReminders } from "../../services/complianceReminderService";
+
 
 const EMPTY_FORM = {
   staffUserId: "",
@@ -240,6 +242,11 @@ export default function CompliancePanel() {
     documentRefreshKey,
     setDocumentRefreshKey,
   ] = useState(0);
+
+  const [
+    syncingReminders,
+    setSyncingReminders,
+  ] = useState(false);
 
 
   const canManageCompliance =
@@ -762,6 +769,65 @@ export default function CompliancePanel() {
       (current) =>
         current + 1
     );
+  }
+
+  async function handleSyncComplianceReminders() {
+    if (!canManageCompliance) {
+      setErrorMessage(
+        "Your workspace role cannot sync compliance reminders."
+      );
+      return;
+    }
+
+    if (!organisationId) {
+      setErrorMessage(
+        "No provider workspace is active."
+      );
+      return;
+    }
+
+    if (!user?.id) {
+      setErrorMessage(
+        "You must be signed in to sync compliance reminders."
+      );
+      return;
+    }
+
+    setSyncingReminders(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const result =
+        await syncOrganisationComplianceReminders({
+          organisationId,
+          createdBy: user.id,
+        });
+
+      const summary =
+        result?.summary || {};
+
+      setSuccessMessage(
+        `Compliance reminder sync complete. Scanned ${summary.scanned ?? 0} · Created ${summary.created ?? 0} · Updated ${summary.updated ?? 0} · Unchanged ${summary.unchanged ?? 0} · Errors ${summary.errors ?? 0}.`
+      );
+
+      setDocumentRefreshKey(
+        (current) =>
+          current + 1
+      );
+    } catch (error) {
+      console.error(
+        "Unable to sync compliance reminders:",
+        error
+      );
+
+      setErrorMessage(
+        error?.message ||
+          "Compliance reminders could not be synced."
+      );
+    } finally {
+      setSyncingReminders(false);
+    }
   }
 
 
@@ -1313,8 +1379,8 @@ export default function CompliancePanel() {
             </div>
 
             <div className="card-subtitle">
-              Theraa Nurse can later use these records
-              when rostering staff for specific services.
+              Scan verified and rejected compliance documents
+              and create or update shared workforce reminders.
             </div>
 
             <ol className="team-process-list">
@@ -1324,22 +1390,55 @@ export default function CompliancePanel() {
               </li>
 
               <li>
-                Surface documents approaching expiry.
+                Surface verified documents approaching expiry.
               </li>
 
               <li>
-                Verify records after organisational review.
+                Escalate reminder priority as expiry approaches
+                or when a credential has expired.
               </li>
 
               <li>
-                Generate reminder tasks before expiry.
+                Create corrective-action reminders when
+                a compliance document is rejected.
               </li>
 
               <li>
-                Warn roster managers when a relevant
-                credential may be missing or expired.
+                Reuse the same reminder for a document
+                instead of creating duplicates.
               </li>
             </ol>
+
+            {canManageCompliance ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() =>
+                  void handleSyncComplianceReminders()
+                }
+                disabled={
+                  syncingReminders
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 14,
+                }}
+              >
+                {syncingReminders
+                  ? "Syncing Compliance Reminders…"
+                  : "🔔 Sync Compliance Reminders"}
+              </button>
+            ) : (
+              <div
+                className="team-warning"
+                style={{
+                  marginTop: 14,
+                }}
+              >
+                Compliance reminder synchronisation is available
+                to Provider Admins, Managers and Support Coordinators.
+              </div>
+            )}
           </section>
         </aside>
       </div>
