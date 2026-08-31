@@ -25,6 +25,10 @@ import {
   updateRosterShiftStatus,
 } from "../../services/rosterService";
 
+import {
+  evaluateRosterReadiness,
+} from "../../services/serviceReadinessService";
+
 
 const EMPTY_SHIFT = {
   participantId: "",
@@ -217,6 +221,72 @@ function statusClass(status) {
 }
 
 
+function readinessAppearance(status) {
+  switch (status) {
+    case "ready":
+      return {
+        border: "#86efac",
+        background: "#f0fdf4",
+        color: "#166534",
+      };
+
+    case "warning":
+      return {
+        border: "#fde68a",
+        background: "#fffbeb",
+        color: "#92400e",
+      };
+
+    case "blocked":
+      return {
+        border: "#fca5a5",
+        background: "#fef2f2",
+        color: "#991b1b",
+      };
+
+    default:
+      return {
+        border: "#cbd5e1",
+        background: "#f8fafc",
+        color: "#475569",
+      };
+  }
+}
+
+
+function complianceGapIcon(status) {
+  switch (status) {
+    case "compliant":
+      return "✅";
+
+    case "expiring":
+      return "⚠️";
+
+    case "pending_review":
+      return "🔎";
+
+    case "missing":
+    case "expired":
+    case "rejected":
+      return "❌";
+
+    default:
+      return "⚪";
+  }
+}
+
+
+function complianceGapLabel(status) {
+  if (!status) {
+    return "UNKNOWN";
+  }
+
+  return String(status)
+    .replaceAll("_", " ")
+    .toUpperCase();
+}
+
+
 function RosterStat({
   icon,
   value,
@@ -320,6 +390,24 @@ export default function RosterBoard() {
   const [
     successMessage,
     setSuccessMessage,
+  ] = useState("");
+
+
+  const [
+    rosterReadiness,
+    setRosterReadiness,
+  ] = useState(null);
+
+
+  const [
+    readinessLoading,
+    setReadinessLoading,
+  ] = useState(false);
+
+
+  const [
+    readinessError,
+    setReadinessError,
   ] = useState("");
 
 
@@ -639,6 +727,14 @@ export default function RosterBoard() {
     key,
     value
   ) {
+    if (
+      key === "staffUserId" ||
+      key === "serviceType"
+    ) {
+      setRosterReadiness(null);
+      setReadinessError("");
+    }
+
     setForm(
       (previous) => ({
         ...previous,
@@ -648,7 +744,131 @@ export default function RosterBoard() {
   }
 
 
+  const checkRosterReadiness =
+    useCallback(
+      async ({
+        staffUserId,
+        serviceType,
+      } = {}) => {
+        if (
+          !organisationId ||
+          !staffUserId ||
+          !serviceType
+        ) {
+          setRosterReadiness(null);
+          setReadinessError("");
+          return null;
+        }
+
+        setReadinessLoading(true);
+        setReadinessError("");
+
+        try {
+          const result =
+            await evaluateRosterReadiness({
+              organisationId,
+              staffUserId,
+              serviceType,
+            });
+
+          setRosterReadiness(result);
+
+          return result;
+        } catch (error) {
+          console.error(
+            "Unable to evaluate roster readiness:",
+            error
+          );
+
+          setRosterReadiness(null);
+
+          setReadinessError(
+            error?.message ||
+              "Roster readiness could not be evaluated."
+          );
+
+          return null;
+        } finally {
+          setReadinessLoading(false);
+        }
+      },
+      [
+        organisationId,
+      ]
+    );
+
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function runReadinessCheck() {
+      if (
+        !organisationId ||
+        !form.staffUserId ||
+        !form.serviceType
+      ) {
+        if (!cancelled) {
+          setRosterReadiness(null);
+          setReadinessError("");
+          setReadinessLoading(false);
+        }
+
+        return;
+      }
+
+      setReadinessLoading(true);
+      setReadinessError("");
+
+      try {
+        const result =
+          await evaluateRosterReadiness({
+            organisationId,
+            staffUserId:
+              form.staffUserId,
+            serviceType:
+              form.serviceType,
+          });
+
+        if (!cancelled) {
+          setRosterReadiness(result);
+        }
+      } catch (error) {
+        console.error(
+          "Unable to evaluate selected professional for rostering:",
+          error
+        );
+
+        if (!cancelled) {
+          setRosterReadiness(null);
+
+          setReadinessError(
+            error?.message ||
+              "Roster readiness could not be evaluated."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setReadinessLoading(false);
+        }
+      }
+    }
+
+    void runReadinessCheck();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    organisationId,
+    form.staffUserId,
+    form.serviceType,
+  ]);
+
+
   function resetForm() {
+    setRosterReadiness(null);
+    setReadinessError("");
+
     setForm({
       ...EMPTY_SHIFT,
 
@@ -694,11 +914,56 @@ export default function RosterBoard() {
       return;
     }
 
+    if (!form.serviceType) {
+      setErrorMessage(
+        "Select a service type."
+      );
+
+      return;
+    }
+
     setSaving(true);
     setErrorMessage("");
     setSuccessMessage("");
 
     try {
+      /*
+       * Final readiness re-check immediately before the
+       * shift is written. This prevents a stale UI result
+       * from being used if onboarding/compliance changed
+       * after the professional was selected.
+       */
+      const latestReadiness =
+        await evaluateRosterReadiness({
+          organisationId,
+
+          staffUserId:
+            form.staffUserId,
+
+          serviceType:
+            form.serviceType,
+        });
+
+      setRosterReadiness(
+        latestReadiness
+      );
+
+      if (
+        !latestReadiness?.ready
+      ) {
+        const firstBlocker =
+          latestReadiness
+            ?.blockers?.[0];
+
+        setErrorMessage(
+          firstBlocker
+            ? `Shift not scheduled. ${firstBlocker}`
+            : "Shift not scheduled. The assigned professional is not currently service ready."
+        );
+
+        return;
+      }
+
       await createRosterShift({
         organisationId,
 
@@ -1516,6 +1781,426 @@ export default function RosterBoard() {
                 </label>
 
 
+                {/* =======================================
+                    ROSTER COMPLIANCE GUARD
+                ======================================= */}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      alignItems:
+                        "center",
+                      gap: 10,
+                    }}
+                  >
+                    <strong>
+                      🛡️ Roster Compliance
+                      Guard
+                    </strong>
+
+                    {form.staffUserId ? (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={
+                          readinessLoading
+                        }
+                        onClick={() =>
+                          void checkRosterReadiness({
+                            staffUserId:
+                              form.staffUserId,
+                            serviceType:
+                              form.serviceType,
+                          })
+                        }
+                      >
+                        {readinessLoading
+                          ? "Checking…"
+                          : "↻ Recheck"}
+                      </button>
+                    ) : null}
+                  </div>
+
+
+                  {!form.staffUserId ? (
+                    <div className="team-warning">
+                      Select an assigned
+                      professional to check
+                      onboarding, service
+                      authorisation and
+                      compliance readiness.
+                    </div>
+                  ) : null}
+
+
+                  {form.staffUserId &&
+                  readinessLoading ? (
+                    <div className="empty-state">
+                      Checking whether{" "}
+                      {getMemberDisplayName(
+                        form.staffUserId
+                      )}{" "}
+                      is ready for{" "}
+                      {form.serviceType}…
+                    </div>
+                  ) : null}
+
+
+                  {form.staffUserId &&
+                  !readinessLoading &&
+                  readinessError ? (
+                    <div className="auth-error">
+                      <strong>
+                        Readiness check
+                        failed
+                      </strong>
+
+                      <div
+                        style={{
+                          marginTop: 5,
+                        }}
+                      >
+                        {readinessError}
+                      </div>
+                    </div>
+                  ) : null}
+
+
+                  {form.staffUserId &&
+                  !readinessLoading &&
+                  !readinessError &&
+                  rosterReadiness ? (
+                    (() => {
+                      const appearance =
+                        readinessAppearance(
+                          rosterReadiness.status
+                        );
+
+                      return (
+                        <div
+                          style={{
+                            display:
+                              "grid",
+                            gap: 10,
+                            padding: 12,
+                            border:
+                              `1px solid ${appearance.border}`,
+                            background:
+                              appearance.background,
+                            borderRadius:
+                              12,
+                          }}
+                        >
+                          <div>
+                            <strong
+                              style={{
+                                color:
+                                  appearance.color,
+                              }}
+                            >
+                              {
+                                rosterReadiness.statusIcon
+                              }{" "}
+                              {
+                                rosterReadiness.statusLabel
+                              }
+                            </strong>
+
+                            <div
+                              style={{
+                                marginTop:
+                                  4,
+                                fontSize:
+                                  12,
+                                color:
+                                  "#64748b",
+                              }}
+                            >
+                              {getMemberDisplayName(
+                                form.staffUserId
+                              )}{" "}
+                              ·{" "}
+                              {
+                                form.serviceType
+                              }
+                            </div>
+                          </div>
+
+
+                          <div
+                            style={{
+                              display:
+                                "grid",
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(125px, 1fr))",
+                              gap: 7,
+                            }}
+                          >
+                            <div className="card">
+                              <small>
+                                Profile
+                              </small>
+
+                              <strong
+                                style={{
+                                  display:
+                                    "block",
+                                  marginTop:
+                                    3,
+                                  fontSize:
+                                    12,
+                                }}
+                              >
+                                {rosterReadiness
+                                  .onboarding
+                                  ?.profileComplete
+                                  ? "✅ Complete"
+                                  : "❌ Incomplete"}
+                              </strong>
+                            </div>
+
+
+                            <div className="card">
+                              <small>
+                                Provider
+                              </small>
+
+                              <strong
+                                style={{
+                                  display:
+                                    "block",
+                                  marginTop:
+                                    3,
+                                  fontSize:
+                                    12,
+                                }}
+                              >
+                                {rosterReadiness
+                                  .onboarding
+                                  ?.providerApproved
+                                  ? "✅ Approved"
+                                  : "❌ Not Approved"}
+                              </strong>
+                            </div>
+
+
+                            <div className="card">
+                              <small>
+                                Service
+                              </small>
+
+                              <strong
+                                style={{
+                                  display:
+                                    "block",
+                                  marginTop:
+                                    3,
+                                  fontSize:
+                                    12,
+                                }}
+                              >
+                                {rosterReadiness
+                                  .service
+                                  ?.authorised
+                                  ? "✅ Authorised"
+                                  : "❌ Not Authorised"}
+                              </strong>
+                            </div>
+
+
+                            <div className="card">
+                              <small>
+                                Compliance
+                              </small>
+
+                              <strong
+                                style={{
+                                  display:
+                                    "block",
+                                  marginTop:
+                                    3,
+                                  fontSize:
+                                    12,
+                                }}
+                              >
+                                {rosterReadiness
+                                  .compliance
+                                  ?.ready
+                                  ? "✅ Cleared"
+                                  : "❌ Blocked"}
+                              </strong>
+                            </div>
+                          </div>
+
+
+                          {rosterReadiness
+                            .compliance
+                            ?.gaps?.length >
+                          0 ? (
+                            <div
+                              style={{
+                                display:
+                                  "grid",
+                                gap: 5,
+                              }}
+                            >
+                              {rosterReadiness.compliance.gaps.map(
+                                (
+                                  gap
+                                ) => (
+                                  <div
+                                    key={
+                                      gap.requirementId ||
+                                      gap.id
+                                    }
+                                    style={{
+                                      display:
+                                        "flex",
+                                      justifyContent:
+                                        "space-between",
+                                      gap: 8,
+                                      padding:
+                                        "7px 9px",
+                                      background:
+                                        "#ffffff",
+                                      border:
+                                        "1px solid #e2e8f0",
+                                      borderRadius:
+                                        8,
+                                      fontSize:
+                                        12,
+                                    }}
+                                  >
+                                    <span>
+                                      {complianceGapIcon(
+                                        gap.status
+                                      )}{" "}
+                                      {gap.requirementType ||
+                                        "Compliance requirement"}
+                                    </span>
+
+                                    <strong>
+                                      {complianceGapLabel(
+                                        gap.status
+                                      )}
+                                    </strong>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <small>
+                              No compliance
+                              requirements are
+                              currently configured
+                              for this
+                              professional.
+                            </small>
+                          )}
+
+
+                          {rosterReadiness
+                            .blockers
+                            ?.length >
+                          0 ? (
+                            <div className="auth-error">
+                              <strong>
+                                Blocking Issues
+                              </strong>
+
+                              <div
+                                style={{
+                                  marginTop:
+                                    5,
+                                  display:
+                                    "grid",
+                                  gap: 4,
+                                }}
+                              >
+                                {rosterReadiness.blockers.map(
+                                  (
+                                    blocker,
+                                    index
+                                  ) => (
+                                    <div
+                                      key={`${blocker}-${index}`}
+                                    >
+                                      ❌{" "}
+                                      {blocker}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+
+
+                          {rosterReadiness
+                            .warnings
+                            ?.length >
+                          0 ? (
+                            <div className="team-warning">
+                              <strong>
+                                Warnings
+                              </strong>
+
+                              <div
+                                style={{
+                                  marginTop:
+                                    5,
+                                  display:
+                                    "grid",
+                                  gap: 4,
+                                }}
+                              >
+                                {rosterReadiness.warnings.map(
+                                  (
+                                    warning,
+                                    index
+                                  ) => (
+                                    <div
+                                      key={`${warning}-${index}`}
+                                    >
+                                      ⚠️{" "}
+                                      {warning}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+
+
+                          {rosterReadiness.ready ? (
+                            <div className="auth-success">
+                              {rosterReadiness.status ===
+                              "warning"
+                                ? "⚠️ The professional may be rostered, but the warnings above require attention."
+                                : "✅ The professional is cleared for this selected service."}
+                            </div>
+                          ) : (
+                            <div className="team-warning">
+                              🔒 Scheduling is
+                              blocked until all
+                              blocking readiness
+                              issues are resolved.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : null}
+                </div>
+
+
                 <label>
                   <span>
                     Date
@@ -1649,12 +2334,22 @@ export default function RosterBoard() {
                   type="submit"
                   className="btn-primary"
                   disabled={
-                    saving
+                    saving ||
+                    readinessLoading ||
+                    !form.staffUserId ||
+                    !form.serviceType ||
+                    !rosterReadiness ||
+                    !rosterReadiness.ready
                   }
                 >
                   {saving
                     ? "Scheduling…"
-                    : "📅 Schedule Shift"}
+                    : readinessLoading
+                      ? "Checking Readiness…"
+                      : rosterReadiness &&
+                          !rosterReadiness.ready
+                        ? "🔒 Shift Blocked"
+                        : "📅 Schedule Shift"}
                 </button>
               </form>
             )}
@@ -1674,13 +2369,25 @@ export default function RosterBoard() {
 
             <ol className="team-process-list">
               <li>
-                Assign the participant and
-                appropriate professional.
+                Assign the participant,
+                professional and service.
               </li>
 
               <li>
-                Specify the service, date,
-                time and location.
+                Roster Compliance Guard checks
+                onboarding, provider approval,
+                service authorisation and
+                compliance evidence.
+              </li>
+
+              <li>
+                Resolve any blocking readiness
+                issues before scheduling.
+              </li>
+
+              <li>
+                Specify the date, time,
+                location and shift instructions.
               </li>
 
               <li>
